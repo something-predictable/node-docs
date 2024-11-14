@@ -1,0 +1,15 @@
+{
+  "name": "docs",
+  "version": "0.0.1",
+  "type": "module",
+  "private": true,
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "start": "riddance-watch"
+  },
+  "devDependencies": {
+    "@riddance/env": "0.6.4"
+  }
+}
