@@ -1,4 +1,4 @@
-import { documents } from '../index.js'
+import { documents, setDriver } from '../index.js'
 
 export type Generic<Document> = {
     [partition: string]: {
@@ -35,10 +35,20 @@ type Users = {
 const context = {}
 
 describe('in-memory docs', () => {
+    beforeEach('Set driver.', () => {
+        setDriver({
+            connect: () =>
+                Promise.resolve({
+                    close: () => Promise.resolve(),
+                }),
+        })
+    })
+
     it('should get company settings', async () => {
         await using companies = documents<Companies>(context, 'CompanyDocs')
         const companyId = 'some-id'
 
+        await companies.settings.add(companyId, { count: 4 })
         const s = await companies.settings.get(companyId)
         if (!s) {
             throw new Error('not found')
@@ -60,8 +70,9 @@ describe('in-memory docs', () => {
 
     it('should get user profiles', async () => {
         await using docs = documents<Users>(context, 'UserDocs')
+        const userId = 'some-id'
 
-        const s = await docs['some-id']?.profile.get()
+        const s = await docs[userId]?.profile.get()
         if (!s) {
             throw new Error('not found')
         }

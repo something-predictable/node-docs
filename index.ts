@@ -1,5 +1,3 @@
-import { setTimeout } from 'node:timers/promises'
-
 type Context = object
 
 type PartitionKeyOf<Schema> = keyof Schema
@@ -37,34 +35,92 @@ type Row<T> = {
     readonly document: T
 }
 
-export function documents<Schema>(_context: Context, table: string) {
-    return new Proxy<{ [k: string | symbol]: unknown }>(
-        {
-            [Symbol.asyncDispose]: async () => {
-                await setTimeout(1)
-            },
+export function documents<Schema>(context: Context, table: string) {
+    const d = _driver
+    if (!d) {
+        throw new Error('Please call setDriver() before accessing documents.')
+    }
+    const connection = d.connect(context)
+    return new Proxy(
+        documentsBase(connection, table),
+        documentsProxy,
+    ) as unknown as Documents<Schema> & AsyncDisposable
+}
+
+const tableNameEntry = Symbol()
+const connectionEntry = Symbol()
+const documentsBaseEntry = Symbol()
+const partitionKeyEntry = Symbol()
+
+function documentsBase(connection: Promise<Connection>, table: string) {
+    return {
+        [connectionEntry]: connection,
+        [tableNameEntry]: table,
+        [Symbol.asyncDispose]: async () => {
+            const c = await connection
+            await c.close()
         },
-        {
-            get: (target, property) => {
-                if (property in target) {
-                    return target[property]
-                }
-                return new Proxy<{ [k: string | symbol]: unknown }>(
-                    {
-                        get: () => {
-                            return 0
-                        },
-                    },
-                    {
-                        get: (__, key: string) => {
-                            if (property in target) {
-                                return target[property]
-                            }
-                            return `document at ${table}.${property as string}.${key}`
-                        },
-                    },
-                )
-            },
+    }
+}
+
+const documentsProxy = {
+    get: (
+        target: { [k: string | symbol]: unknown } & ReturnType<typeof documentsBase>,
+        property: string | symbol,
+    ) => {
+        if (property in target) {
+            return target[property]
+        }
+        if (typeof property === 'symbol') {
+            return undefined
+        }
+        return new Proxy<{ [k: string | symbol]: unknown }>(
+            partitionBase(target, property),
+            partitionProxy,
+        )
+    },
+}
+
+function partitionBase(db: ReturnType<typeof documentsBase>, partition: string) {
+    return {
+        [documentsBaseEntry]: db,
+        [partitionKeyEntry]: partition,
+        get: (key: string) => {
+            return Promise.resolve(`document at ${db[tableNameEntry]}.${partition}.${key}`)
         },
-    ) as Documents<Schema> & AsyncDisposable
+        add: (_key: string, _value: unknown) => {
+            return Promise.resolve()
+        },
+    }
+}
+
+const partitionProxy = {
+    get: (
+        target: { [k: string | symbol]: unknown } & ReturnType<typeof partitionBase>,
+        property: string | symbol,
+    ) => {
+        if (property in target) {
+            return target[property]
+        }
+        if (typeof property === 'symbol') {
+            return undefined
+        }
+        return {
+            get: () =>
+                `document at ${target[documentsBaseEntry][tableNameEntry]}.${target[partitionKeyEntry]}.${property}`,
+        }
+    },
+}
+
+type Driver = {
+    connect: (context: Context) => Promise<Connection>
+}
+type Connection = {
+    close: () => Promise<void>
+}
+
+let _driver: Driver | undefined
+
+export function setDriver(driver: Driver) {
+    _driver = driver
 }
