@@ -1,8 +1,11 @@
 import { randomUUID } from 'node:crypto'
 
+const documentsEntry = Symbol()
+
 export class MemoryDriver {
-    connect() {
-        return Promise.resolve(new MemoryDocuments())
+    connect(context: object) {
+        const ext = context as { [documentsEntry]?: MemoryDocuments }
+        return Promise.resolve((ext[documentsEntry] ??= new MemoryDocuments()))
     }
 }
 
@@ -13,12 +16,10 @@ type Row = {
 
 class MemoryDocuments {
     readonly #tables = new MapWithDefault(() => new MapWithDefault(() => new Map<string, Row>()))
-
-    close() {
-        return Promise.resolve()
-    }
+    #closed = false
 
     add(table: string, partition: string, key: string, document: unknown) {
+        this.#throwIfClosed()
         const revision = randomUUID()
         const p = this.#tables.get(table).get(partition)
         if (p.get(key)) {
@@ -29,6 +30,7 @@ class MemoryDocuments {
     }
 
     get(table: string, partition: string, key: string) {
+        this.#throwIfClosed()
         const r = this.#tables.get(table).get(partition).get(key)
         if (!r) {
             throw notFound()
@@ -48,6 +50,7 @@ class MemoryDocuments {
         currentRevision: unknown,
         document: unknown,
     ) {
+        this.#throwIfClosed()
         const p = this.#tables.get(table).get(partition)
         const r = p.get(key)
         if (!r) {
@@ -62,6 +65,7 @@ class MemoryDocuments {
     }
 
     delete(table: string, partition: string, key: string, currentRevision: unknown) {
+        this.#throwIfClosed()
         const p = this.#tables.get(table).get(partition)
         const r = p.get(key)
         if (!r) {
@@ -71,6 +75,17 @@ class MemoryDocuments {
             throw conflict()
         }
         p.delete(key)
+        return Promise.resolve()
+    }
+
+    #throwIfClosed() {
+        if (this.#closed) {
+            throw new Error('Connection has been closed.')
+        }
+    }
+
+    close() {
+        this.#closed = true
         return Promise.resolve()
     }
 }

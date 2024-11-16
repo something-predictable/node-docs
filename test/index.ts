@@ -2,8 +2,6 @@ import assert from 'node:assert/strict'
 import { setDriver, tables } from '../index.js'
 import { MemoryDriver } from '../memory.js'
 
-const context = {}
-
 describe('in-memory docs', () => {
     beforeEach(setMemoryDriver)
 
@@ -22,32 +20,40 @@ describe('in-memory docs', () => {
                 }
             }
         }
+        function getSettings(c: TestContext) {
+            return tables<CompanyProfilesSchema>(c).CompanyDocs.settings
+        }
+        function getKeys(c: TestContext) {
+            return tables<CompanyProfilesSchema>(c).CompanyDocs.keys
+        }
 
-        const companies = tables<CompanyProfilesSchema>(context).CompanyDocs
+        await using context = new TestContext()
         const companyId = 'some-id'
 
-        await companies.settings.add(companyId, { count: 3 })
-        const s = await companies.settings.get(companyId)
-        if (!s) {
+        const settings = getSettings(context)
+        await settings.add(companyId, { count: 3 })
+        const row = await settings.get(companyId)
+        if (!row) {
             throw new Error('not found')
         }
-        const d = s.document
+        const d = row.document
         d.count += 1
-        const r = await companies.settings.updateRow(s)
+        const rev = await settings.updateRow(row)
         d.count += 1
-        await companies.settings.update(companyId, r, d)
-        assert.deepStrictEqual(await companies.settings.getDocument(companyId), { count: 5 })
+        await settings.update(companyId, rev, d)
+        assert.deepStrictEqual(await settings.getDocument(companyId), { count: 5 })
 
-        await companies.keys.add(companyId, { secret: 'shh!' })
-        const k = await companies.keys.get(companyId)
-        if (!k) {
+        const keys = getKeys(context)
+        await keys.add(companyId, { secret: 'shh!' })
+        const keyRow = await keys.get(companyId)
+        if (!keyRow) {
             throw new Error('not found')
         }
-        k.document.secret = 'yhm'
-        await companies.keys.updateRow(k)
+        keyRow.document.secret = 'yhm'
+        await keys.updateRow(keyRow)
 
-        await companies.settings.add('another-id', { count: 2 })
-        await companies.keys.add('another-id', { secret: 'shh!!1!' })
+        await settings.add('another-id', { count: 2 })
+        await keys.add('another-id', { secret: 'shh!!1!' })
     })
 
     it('should get user profiles', async () => {
@@ -65,16 +71,41 @@ describe('in-memory docs', () => {
                 }
             }
         }
+        function getProfiles(context: TestContext) {
+            return tables<UsersSchema>(context).UserDocs.withKey('profile')
+        }
+        function getInvitations(context: TestContext) {
+            return tables<UsersSchema>(context).UserDocs.withKey('invitations')
+        }
 
-        const profiles = tables<UsersSchema>(context).UserDocs.withKey('profile')
+        await using context = new TestContext()
+
+        const profiles = getProfiles(context)
         const userId = 'some-id'
 
         await profiles.add(userId, { name: 'bla', email: 'bla' })
 
-        const invitations = tables<UsersSchema>(context).UserDocs.withKey('invitations')
+        const invitations = getInvitations(context)
         await invitations.add('invitation ID', [{ id: '', scopes: [] }])
     })
 })
+
+class TestContext {
+    readonly #releasers: (() => Promise<void>)[] = []
+
+    on(event: string, handler: () => Promise<void>) {
+        switch (event) {
+            case 'free':
+                this.#releasers.push(handler)
+                return true
+        }
+        return false
+    }
+
+    async [Symbol.asyncDispose]() {
+        await Promise.allSettled(this.#releasers.map(r => r()))
+    }
+}
 
 function setMemoryDriver() {
     setDriver(new MemoryDriver())

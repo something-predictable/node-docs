@@ -1,4 +1,6 @@
-type Context = object
+type Context = {
+    on?: (event: 'free', handler: () => Promise<void>) => boolean
+}
 
 type TableNamesOf<Schema> = keyof Schema & string
 type PartitionKeyOf<Schema, Table extends TableNamesOf<Schema>> = keyof Schema[Table] & string
@@ -81,14 +83,28 @@ type GenericSchema = {
     }
 }
 
+export function tables<Schema = GenericSchema>(
+    context: Context & { on?: undefined },
+): Tables<Schema> & AsyncDisposable
+export function tables<Schema = GenericSchema>(
+    context: Context & { on: (event: 'free', handler: () => Promise<void>) => void },
+): Tables<Schema>
+
 export function tables<Schema = GenericSchema>(context: Context) {
     const d = _driver
     if (!d) {
         throw new Error('Please call setDriver() before accessing documents.')
     }
     const connection = d.connect(context)
-    return new Proxy(tablesBase(connection), tablesProxy) as unknown as Tables<Schema> &
-        AsyncDisposable
+    const closer = async () => {
+        await (await connection).close()
+    }
+    const p = new Proxy(tablesBase(connection), tablesProxy) as unknown as Tables<Schema>
+    if (!context.on?.('free', closer)) {
+        const dp = p as Tables<Schema> & AsyncDisposable
+        dp[Symbol.asyncDispose] = closer
+    }
+    return p
 }
 
 const tableNameEntry = Symbol()
@@ -98,10 +114,6 @@ const partitionKeyEntry = Symbol()
 function tablesBase(connection: Promise<Connection>) {
     return {
         [connectionEntry]: connection,
-        [Symbol.asyncDispose]: async () => {
-            const c = await connection
-            await c.close()
-        },
     }
 }
 
@@ -126,13 +138,9 @@ function tableBase(db: ReturnType<typeof tablesBase>, table: string) {
     return {
         [connectionEntry]: db[connectionEntry],
         [tableNameEntry]: table,
-        [Symbol.asyncDispose]: async () => {
-            const c = await db[connectionEntry]
-            await c.close()
-        },
-        withKey: (key: string): FixedKey<StoredDocument> => ({
-            add: async (partition: string, document: StoredDocument) =>
-                await (await db[connectionEntry]).add(table, partition, key, document),
+        withKey: (key: string) => ({
+            add: async (partition: string, document: unknown) =>
+                (await db[connectionEntry]).add(table, partition, key, document),
             get: async (partition: string) =>
                 await (await db[connectionEntry]).get(table, partition, key),
             getDocument: async (partition: string) =>
