@@ -15,29 +15,43 @@ type DocumentOfFixedPartition<
     P extends PartitionKeyOf<Schema, Table>,
 > = Schema[Table][P][KeyOf<Schema, Table>]
 
+type DocumentOf<Schema, Table extends TableNamesOf<Schema>> = Schema[Table][PartitionKeyOf<
+    Schema,
+    Table
+>][KeyOf<Schema, Table>]
+
 type DocumentOfFixedKey<
     Schema,
     Table extends TableNamesOf<Schema>,
     K extends KeyOf<Schema, Table>,
 > = Schema[Table][PartitionKeyOf<Schema, Table>][K]
 
-type Tables<Schema> = {
-    readonly [P in TableNamesOf<Schema>]: Documents<Schema, P>
-}
+type Tables<Schema> =
+    string extends TableNamesOf<Schema>
+        ? never
+        : {
+              readonly [P in TableNamesOf<Schema>]: Documents<Schema, P>
+          }
 
 type Documents<Schema, Table extends TableNamesOf<Schema>> =
     string extends PartitionKeyOf<Schema, Table>
-        ? PartitionsWithFixedKey<Schema, Table>
-        : Partitions<Schema, Table>
+        ? string extends KeyOf<Schema, Table>
+            ? Partitions<Schema, Table>
+            : PartitionsWithFixedKey<Schema, Table>
+        : NamedPartitions<Schema, Table>
 
 type PartitionsWithFixedKey<Schema, Table extends TableNamesOf<Schema>> = {
     withKey<K extends KeyOf<Schema, Table>>(key: K): FixedKey<DocumentOfFixedKey<Schema, Table, K>>
 }
 
-type Partitions<Schema, Table extends TableNamesOf<Schema>> = {
-    readonly [P in PartitionKeyOf<Schema, Table>]: FixedPartition<
+type NamedPartitions<Schema, Table extends TableNamesOf<Schema>> = {
+    readonly [P in PartitionKeyOf<Schema, Table>]: NamedPartition<
         DocumentOfFixedPartition<Schema, Table, P>
     >
+}
+
+type Partitions<Schema, Table extends TableNamesOf<Schema>> = {
+    partition(partition: string): NamedPartition<DocumentOf<Schema, Table>>
 }
 
 export type Revision = unknown
@@ -77,7 +91,7 @@ export type KeyRange =
           after?: string
       }
 
-type FixedPartition<Document> = {
+type NamedPartition<Document> = {
     add: (key: string, document: Document) => Promise<Revision>
     get: (
         key: string,
@@ -175,6 +189,7 @@ function tableBase(db: ReturnType<typeof tablesBase>, table: string) {
                 await (await db[connectionEntry]).delete(table, partition, key, revision)
             },
         }),
+        partition: (partition: string) => partitionBase(db[connectionEntry], table, partition),
     }
 }
 
@@ -186,53 +201,40 @@ const tableProxy = {
         if (typeof property === 'symbol') {
             return undefined
         }
-        return new Proxy(partitionBase(target, property), partitionProxy)
+        return new Proxy(
+            partitionBase(target[connectionEntry], target[tableNameEntry], property),
+            partitionProxy,
+        )
     },
 }
 
 function partitionBase(
-    db: ReturnType<typeof tableBase>,
+    connection: Promise<Connection>,
+    table: string,
     partition: string,
 ): {
     [tableNameEntry]: string
     [partitionKeyEntry]: string
-} & FixedPartition<StoredDocument> {
+} & NamedPartition<StoredDocument> {
     return {
-        [tableNameEntry]: db[tableNameEntry],
+        [tableNameEntry]: table,
         [partitionKeyEntry]: partition,
         add: async (key: string, document: StoredDocument) =>
-            (await db[connectionEntry]).add(db[tableNameEntry], partition, key, document),
-        get: async (key: string) =>
-            (await db[connectionEntry]).get(db[tableNameEntry], partition, key),
+            (await connection).add(table, partition, key, document),
+        get: async (key: string) => (await connection).get(table, partition, key),
         getDocument: async (key: string) =>
-            (await (await db[connectionEntry]).get(db[tableNameEntry], partition, key)).document,
+            (await (await connection).get(table, partition, key)).document,
         async *getRange(range: KeyRange) {
-            for await (const r of (await db[connectionEntry]).getRange(
-                db[tableNameEntry],
-                partition,
-                range,
-            )) {
+            for await (const r of (await connection).getRange(table, partition, range)) {
                 yield r
             }
         },
         update: async (key: string, revision: Revision, document: StoredDocument) =>
-            (await db[connectionEntry]).update(
-                db[tableNameEntry],
-                partition,
-                key,
-                revision,
-                document,
-            ),
+            (await connection).update(table, partition, key, revision, document),
         updateRow: async (row: { key: string; revision: Revision; document: StoredDocument }) =>
-            (await db[connectionEntry]).update(
-                db[tableNameEntry],
-                partition,
-                row.key,
-                row.revision,
-                row.document,
-            ),
+            (await connection).update(table, partition, row.key, row.revision, row.document),
         delete: async (key: string, revision: Revision) => {
-            await (await db[connectionEntry]).delete(db[tableNameEntry], partition, key, revision)
+            await (await connection).delete(table, partition, key, revision)
         },
     }
 }

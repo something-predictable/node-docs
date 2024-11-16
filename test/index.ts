@@ -55,12 +55,8 @@ describe('in-memory docs', () => {
         await settings.add('another-id', { count: 2 })
         await keys.add('another-id', { secret: 'shh!!1!' })
 
-        const collected = []
-        for await (const r of settings.getRange({ withPrefix: 'another' })) {
-            collected.push(r)
-        }
         assert.deepStrictEqual(
-            collected.map(r => r.document),
+            await collectDocuments(settings.getRange({ withPrefix: 'another' })),
             [{ count: 2 }],
         )
     })
@@ -97,7 +93,36 @@ describe('in-memory docs', () => {
         const invitations = getInvitations(context)
         await invitations.add('invitation ID', [{ id: '', scopes: [] }])
     })
+
+    it('should get user profiles', async () => {
+        type ConversationSchema = {
+            Conversations: {
+                [userId: string]: {
+                    [messageId: string]: {
+                        subject: string
+                        body: string
+                    }
+                }
+            }
+        }
+        await using context = new TestContext()
+
+        const conversations = tables<ConversationSchema>(context).Conversations
+        const userId = 'some-id'
+        const userMessages = conversations.partition(userId)
+        await userMessages.add('b', { subject: 'huh', body: 'hello' })
+        const range = await collectDocuments(userMessages.getRange({ after: 'a' }))
+        assert.deepStrictEqual(range, [{ subject: 'huh', body: 'hello' }])
+    })
 })
+
+async function collectDocuments<T>(range: AsyncIterable<{ document: T }>) {
+    const collected = []
+    for await (const r of range) {
+        collected.push(r.document)
+    }
+    return collected
+}
 
 class TestContext {
     readonly #releasers: (() => Promise<void>)[] = []
