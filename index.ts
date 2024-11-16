@@ -43,22 +43,25 @@ type PartitionsWithFixedKey<Schema, Table extends TableNamesOf<Schema>> = {
     withKey<K extends KeyOf<Schema, Table>>(key: K): FixedKey<DocumentOfFixedKey<Schema, Table, K>>
 }
 
+export type Revision = unknown
+
+export type Row<T> = {
+    readonly revision: Revision
+    readonly document: T
+}
+
 type FixedKey<Value> = {
+    add: (partition: string, document: Value) => Promise<Revision>
     get: (partition: string) => Promise<Row<Value> | undefined>
-    add: (partition: string, document: Value) => Promise<Row<Value>>
+    update: (partition: string, revision: Revision, document: Value) => Promise<Revision>
+    delete: (partition: string, revision: Revision) => Promise<void>
 }
 
 type FixedPartition<Value> = {
+    add: (key: string, document: Value) => Promise<Revision>
     get: (key: string) => Promise<Row<Value> | undefined>
-    add: (key: string, document: Value) => Promise<Row<Value>>
-}
-
-type Row<T> = {
-    readonly created: Date
-    readonly modified: Date
-    readonly revision: unknown
-    readonly sequenceNumber: number
-    readonly document: T
+    update: (key: string, revision: Revision, document: Value) => Promise<Revision>
+    delete: (key: string, revision: Revision) => Promise<void>
 }
 
 type GenericSchema<Document> = {
@@ -81,7 +84,6 @@ export function tables<Schema = GenericSchema<unknown>>(context: Context) {
 
 const tableNameEntry = Symbol()
 const connectionEntry = Symbol()
-const documentsBaseEntry = Symbol()
 const partitionKeyEntry = Symbol()
 
 function tablesBase(connection: Promise<Connection>) {
@@ -117,9 +119,16 @@ function tableBase(db: ReturnType<typeof tablesBase>, table: string) {
             const c = await db[connectionEntry]
             await c.close()
         },
-        withKey: (key: string) => {
-            return Promise.resolve(`document in ${table} with key ${key}`)
-        },
+        withKey: (key: string) => ({
+            add: async (partition: string, document: unknown) =>
+                (await db[connectionEntry]).add(table, partition, key, document),
+            get: async (partition: string) =>
+                (await db[connectionEntry]).get(table, partition, key),
+            update: async (partition: string, revision: string, document: unknown) =>
+                (await db[connectionEntry]).update(table, partition, key, revision, document),
+            delete: async (partition: string, revision: Revision) =>
+                (await db[connectionEntry]).delete(table, partition, key, revision),
+        }),
     }
 }
 
@@ -143,14 +152,23 @@ const tableProxy = {
 
 function partitionBase(db: ReturnType<typeof tableBase>, partition: string) {
     return {
-        [documentsBaseEntry]: db,
+        [connectionEntry]: db[connectionEntry],
+        [tableNameEntry]: db[tableNameEntry],
         [partitionKeyEntry]: partition,
-        get: (key: string) => {
-            return Promise.resolve(`document at ${db[tableNameEntry]}.${partition}.${key}`)
-        },
-        add: (_key: string, _value: unknown) => {
-            return Promise.resolve()
-        },
+        add: async (key: string, document: unknown) =>
+            (await db[connectionEntry]).add(db[tableNameEntry], partition, key, document),
+        get: async (key: string) =>
+            (await db[connectionEntry]).get(db[tableNameEntry], partition, key),
+        update: async (key: string, revision: string, document: unknown) =>
+            (await db[connectionEntry]).update(
+                db[tableNameEntry],
+                partition,
+                key,
+                revision,
+                document,
+            ),
+        delete: async (key: string, revision: Revision) =>
+            (await db[connectionEntry]).delete(db[tableNameEntry], partition, key, revision),
     }
 }
 
@@ -166,8 +184,11 @@ const partitionProxy = {
             return undefined
         }
         return {
-            get: () =>
-                `document at ${target[documentsBaseEntry][tableNameEntry]}.${target[partitionKeyEntry]}.${property}`,
+            get: () => {
+                throw new Error(
+                    `document at ${target[tableNameEntry]}.${target[partitionKeyEntry]}.${property}`,
+                )
+            },
         }
     },
 }
@@ -175,8 +196,19 @@ const partitionProxy = {
 type Driver = {
     connect: (context: Context) => Promise<Connection>
 }
+
 type Connection = {
     close: () => Promise<void>
+    add: (table: string, partition: string, key: string, document: unknown) => Promise<Revision>
+    get: (table: string, partition: string, key: string) => Promise<Row<unknown>>
+    update: (
+        table: string,
+        partition: string,
+        key: string,
+        revision: Revision,
+        document: unknown,
+    ) => Promise<Revision>
+    delete: (table: string, partition: string, key: string, revision: Revision) => Promise<void>
 }
 
 let _driver: Driver | undefined

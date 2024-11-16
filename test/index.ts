@@ -3,14 +3,7 @@ import { setDriver, tables } from '../index.js'
 const context = {}
 
 describe('in-memory docs', () => {
-    beforeEach('Set driver.', () => {
-        setDriver({
-            connect: () =>
-                Promise.resolve({
-                    close: () => Promise.resolve(),
-                }),
-        })
-    })
+    beforeEach(setMemoryDriver)
 
     it('should get company settings', async () => {
         type CompanyProfilesSchema = {
@@ -70,10 +63,47 @@ describe('in-memory docs', () => {
         const profiles = tables<UsersSchema>(context).UserDocs.withKey('profile')
         const userId = 'some-id'
 
-        const s = await profiles.add(userId, { name: 'bla', email: 'bla' })
-        s.document.name += 1
+        await profiles.add(userId, { name: 'bla', email: 'bla' })
 
         const invitations = tables<UsersSchema>(context).UserDocs.withKey('invitations')
         await invitations.add('invitation ID', [{ id: '', scopes: [] }])
     })
 })
+
+function setMemoryDriver() {
+    const driver = new MemoryDriver()
+    setDriver({
+        connect: () => Promise.resolve(driver),
+    })
+}
+
+class MemoryDriver {
+    close() {
+        return Promise.resolve()
+    }
+
+    add(_table: string, _partition: string, _key: string, _document: unknown) {
+        return Promise.resolve('randomUUID()')
+    }
+
+    get(_table: string, _partition: string, _key: string) {
+        return Promise.resolve({
+            revision: 'randomUUID()',
+            document: {},
+        })
+    }
+
+    update(
+        _table: string,
+        _partition: string,
+        _key: string,
+        _revision: unknown,
+        _document: unknown,
+    ) {
+        return Promise.resolve('randomUUID()')
+    }
+
+    delete(_table: string, _partition: string, _key: string, _revision: unknown) {
+        return Promise.resolve()
+    }
+}
