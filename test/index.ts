@@ -54,6 +54,15 @@ describe('in-memory docs', () => {
 
         await settings.add('another-id', { count: 2 })
         await keys.add('another-id', { secret: 'shh!!1!' })
+
+        const collected = []
+        for await (const r of settings.getRange({ withPrefix: 'another' })) {
+            collected.push(r)
+        }
+        assert.deepStrictEqual(
+            collected.map(r => r.document),
+            [{ count: 2 }],
+        )
     })
 
     it('should get user profiles', async () => {

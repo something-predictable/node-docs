@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto'
+import type { KeyRange } from './index.js'
 
 const documentsEntry = Symbol()
 
@@ -31,16 +32,31 @@ class MemoryDocuments {
 
     get(table: string, partition: string, key: string) {
         this.#throwIfClosed()
-        const r = this.#tables.get(table).get(partition).get(key)
-        if (!r) {
+        const row = this.#tables.get(table).get(partition).get(key)
+        if (!row) {
             throw notFound()
         }
         return Promise.resolve({
             partition,
             key,
-            revision: r.revision,
-            document: JSON.parse(r.json) as unknown,
+            revision: row.revision,
+            document: JSON.parse(row.json) as unknown,
         })
+    }
+
+    async *getRange(table: string, partition: string, range: KeyRange) {
+        this.#throwIfClosed()
+        const matches = matchRange(range)
+        for (const [key, row] of this.#tables.get(table).get(partition)) {
+            await Promise.resolve()
+            if (matches(key)) {
+                yield {
+                    key,
+                    revision: row.revision,
+                    document: JSON.parse(row.json) as unknown,
+                }
+            }
+        }
     }
 
     update(
@@ -88,6 +104,28 @@ class MemoryDocuments {
         this.#closed = true
         return Promise.resolve()
     }
+}
+
+function matchRange(range: KeyRange) {
+    if ('withPrefix' in range) {
+        return (key: string) => key.startsWith(range.withPrefix)
+    }
+    if ('before' in range || 'after' in range) {
+        const { after, before } = range
+        if (after) {
+            if (before) {
+                return (key: string) => after <= key && key < before
+            } else {
+                return (key: string) => after <= key
+            }
+        }
+        if (before) {
+            return (key: string) => key < before
+        } else {
+            return () => true
+        }
+    }
+    return () => false
 }
 
 class MapWithDefault<K, V> {

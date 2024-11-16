@@ -64,12 +64,28 @@ type FixedKey<Document> = {
     delete: (partition: string, revision: Revision) => Promise<void>
 }
 
+export type KeyRange =
+    | {
+          withPrefix: string
+      }
+    | {
+          before?: string
+          after: string
+      }
+    | {
+          before: string
+          after?: string
+      }
+
 type FixedPartition<Document> = {
     add: (key: string, document: Document) => Promise<Revision>
     get: (
         key: string,
     ) => Promise<{ key: string; revision: Revision; document: Document } | undefined>
     getDocument: (key: string) => Promise<Document | undefined>
+    getRange: (
+        range: KeyRange,
+    ) => AsyncIterable<{ key: string; revision: Revision; document: Document }>
     update: (key: string, revision: Revision, document: Document) => Promise<Revision>
     updateRow: (row: { key: string; revision: Revision; document: Document }) => Promise<Revision>
     delete: (key: string, revision: Revision) => Promise<void>
@@ -190,6 +206,15 @@ function partitionBase(
             (await db[connectionEntry]).get(db[tableNameEntry], partition, key),
         getDocument: async (key: string) =>
             (await (await db[connectionEntry]).get(db[tableNameEntry], partition, key)).document,
+        async *getRange(range: KeyRange) {
+            for await (const r of (await db[connectionEntry]).getRange(
+                db[tableNameEntry],
+                partition,
+                range,
+            )) {
+                yield r
+            }
+        },
         update: async (key: string, revision: Revision, document: StoredDocument) =>
             (await db[connectionEntry]).update(
                 db[tableNameEntry],
@@ -250,6 +275,11 @@ type Connection = {
         partition: string,
         key: string,
     ) => Promise<Row<StoredDocument> & { partition: string; key: string }>
+    getRange: (
+        table: string,
+        partition: string,
+        keyRange: KeyRange,
+    ) => AsyncIterable<{ key: string; revision: Revision; document: StoredDocument }>
     update: (
         table: string,
         partition: string,
