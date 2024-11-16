@@ -1,30 +1,56 @@
 type Context = object
 
-type PartitionKeyOf<Schema> = keyof Schema
-type KeyOf<Schema> = keyof Schema[PartitionKeyOf<Schema>]
-export type DocumentOf<Schema> = Schema[PartitionKeyOf<Schema>][KeyOf<Schema>]
+type TableNamesOf<Schema> = keyof Schema & string
+type PartitionKeyOf<Schema, Table extends TableNamesOf<Schema>> = keyof Schema[Table] & string
+type KeyOf<Schema, Table extends TableNamesOf<Schema>> = keyof Schema[Table][PartitionKeyOf<
+    Schema,
+    Table
+>] &
+    string
+type DocumentOfTable<Schema, Table extends TableNamesOf<Schema>> = Schema[Table][PartitionKeyOf<
+    Schema,
+    Table
+>][KeyOf<Schema, Table>]
 
-type Documents<Schema> = {
-    readonly [P in keyof Schema]-?: PartitionKeyOf<Schema> extends string
-        ? Partition<Schema[P][keyof Schema[P]]>
-        : FixedPartition<Schema[P]>
-} & {
-    update(row: Row<DocumentOf<Schema>>): Promise<void>
+type DocumentOfFixedPartition<
+    Schema,
+    Table extends TableNamesOf<Schema>,
+    P extends PartitionKeyOf<Schema, Table>,
+> = Schema[Table][P][KeyOf<Schema, Table>]
+
+type DocumentOfFixedKey<
+    Schema,
+    Table extends TableNamesOf<Schema>,
+    K extends KeyOf<Schema, Table>,
+> = Schema[Table][PartitionKeyOf<Schema, Table>][K]
+
+type Tables<Schema> = {
+    readonly [P in TableNamesOf<Schema>]: Documents<Schema, P>
 }
 
-type Partition<Value> = {
+type Documents<Schema, Table extends TableNamesOf<Schema>> =
+    string extends PartitionKeyOf<Schema, Table>
+        ? PartitionsWithFixedKey<Schema, Table>
+        : {
+              readonly [P in PartitionKeyOf<Schema, Table>]: FixedPartition<
+                  DocumentOfFixedPartition<Schema, Table, P>
+              >
+          } & {
+              update(row: Row<DocumentOfTable<Schema, Table>>): Promise<void>
+          }
+
+type PartitionsWithFixedKey<Schema, Table extends TableNamesOf<Schema>> = {
+    withKey<K extends KeyOf<Schema, Table>>(key: K): FixedKey<DocumentOfFixedKey<Schema, Table, K>>
+}
+
+type FixedKey<Value> = {
+    get: (partition: string) => Promise<Row<Value> | undefined>
+    add: (partition: string, document: Value) => Promise<Row<Value>>
+}
+
+type FixedPartition<Value> = {
     get: (key: string) => Promise<Row<Value> | undefined>
     add: (key: string, document: Value) => Promise<Row<Value>>
-}
-
-type FixedPartition<P> = {
-    readonly [K in keyof P]-?: Document<P[K]>
-}
-
-type Document<Value> = {
-    get(): Promise<Row<Value> | undefined>
-    put(d: Value): Promise<void>
-    update(d: Row<Value>): Promise<void>
 }
 
 type Row<T> = {
@@ -35,16 +61,22 @@ type Row<T> = {
     readonly document: T
 }
 
-export function documents<Schema>(context: Context, table: string) {
+type GenericSchema<Document> = {
+    [table: string]: {
+        [partition: string]: {
+            [key: string]: Document
+        }
+    }
+}
+
+export function tables<Schema = GenericSchema<unknown>>(context: Context) {
     const d = _driver
     if (!d) {
         throw new Error('Please call setDriver() before accessing documents.')
     }
     const connection = d.connect(context)
-    return new Proxy(
-        documentsBase(connection, table),
-        documentsProxy,
-    ) as unknown as Documents<Schema> & AsyncDisposable
+    return new Proxy(tablesBase(connection), tablesProxy) as unknown as Tables<Schema> &
+        AsyncDisposable
 }
 
 const tableNameEntry = Symbol()
@@ -52,10 +84,9 @@ const connectionEntry = Symbol()
 const documentsBaseEntry = Symbol()
 const partitionKeyEntry = Symbol()
 
-function documentsBase(connection: Promise<Connection>, table: string) {
+function tablesBase(connection: Promise<Connection>) {
     return {
         [connectionEntry]: connection,
-        [tableNameEntry]: table,
         [Symbol.asyncDispose]: async () => {
             const c = await connection
             await c.close()
@@ -63,9 +94,38 @@ function documentsBase(connection: Promise<Connection>, table: string) {
     }
 }
 
-const documentsProxy = {
+const tablesProxy = {
     get: (
-        target: { [k: string | symbol]: unknown } & ReturnType<typeof documentsBase>,
+        target: { [k: string | symbol]: unknown } & ReturnType<typeof tablesBase>,
+        property: string | symbol,
+    ) => {
+        if (property in target) {
+            return target[property]
+        }
+        if (typeof property === 'symbol') {
+            return undefined
+        }
+        return new Proxy<{ [k: string | symbol]: unknown }>(tableBase(target, property), tableProxy)
+    },
+}
+
+function tableBase(db: ReturnType<typeof tablesBase>, table: string) {
+    return {
+        [connectionEntry]: db[connectionEntry],
+        [tableNameEntry]: table,
+        [Symbol.asyncDispose]: async () => {
+            const c = await db[connectionEntry]
+            await c.close()
+        },
+        withKey: (key: string) => {
+            return Promise.resolve(`document in ${table} with key ${key}`)
+        },
+    }
+}
+
+const tableProxy = {
+    get: (
+        target: { [k: string | symbol]: unknown } & ReturnType<typeof tableBase>,
         property: string | symbol,
     ) => {
         if (property in target) {
@@ -81,7 +141,7 @@ const documentsProxy = {
     },
 }
 
-function partitionBase(db: ReturnType<typeof documentsBase>, partition: string) {
+function partitionBase(db: ReturnType<typeof tableBase>, partition: string) {
     return {
         [documentsBaseEntry]: db,
         [partitionKeyEntry]: partition,

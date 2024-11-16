@@ -1,36 +1,4 @@
-import { documents, setDriver } from '../index.js'
-
-export type Generic<Document> = {
-    [partition: string]: {
-        [key: string]: Document
-    }
-}
-
-type Companies = {
-    settings: {
-        [companyId: string]: {
-            count: number
-        }
-    }
-    keys: {
-        [companyId: string]: {
-            secret: string
-        }
-    }
-}
-
-type Users = {
-    [id: string]: {
-        profile: {
-            name: string
-            email: string
-        }
-        invitations: {
-            id: string
-            scopes: string[]
-        }[]
-    }
-}
+import { setDriver, tables } from '../index.js'
 
 const context = {}
 
@@ -45,10 +13,25 @@ describe('in-memory docs', () => {
     })
 
     it('should get company settings', async () => {
-        await using companies = documents<Companies>(context, 'CompanyDocs')
+        type CompanyProfilesSchema = {
+            CompanyDocs: {
+                settings: {
+                    [companyId: string]: {
+                        count: number
+                    }
+                }
+                keys: {
+                    [companyId: string]: {
+                        secret: string
+                    }
+                }
+            }
+        }
+
+        const companies = tables<CompanyProfilesSchema>(context).CompanyDocs
         const companyId = 'some-id'
 
-        await companies.settings.add(companyId, { count: 4 })
+        await companies.settings.add(companyId, { count: 3 })
         const s = await companies.settings.get(companyId)
         if (!s) {
             throw new Error('not found')
@@ -69,13 +52,28 @@ describe('in-memory docs', () => {
     })
 
     it('should get user profiles', async () => {
-        await using docs = documents<Users>(context, 'UserDocs')
+        type UsersSchema = {
+            UserDocs: {
+                [id: string]: {
+                    profile: {
+                        name: string
+                        email: string
+                    }
+                    invitations: {
+                        id: string
+                        scopes: string[]
+                    }[]
+                }
+            }
+        }
+
+        const profiles = tables<UsersSchema>(context).UserDocs.withKey('profile')
         const userId = 'some-id'
 
-        const s = await docs[userId]?.profile.get()
-        if (!s) {
-            throw new Error('not found')
-        }
+        const s = await profiles.add(userId, { name: 'bla', email: 'bla' })
         s.document.name += 1
+
+        const invitations = tables<UsersSchema>(context).UserDocs.withKey('invitations')
+        await invitations.add('invitation ID', [{ id: '', scopes: [] }])
     })
 })
