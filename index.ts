@@ -50,29 +50,31 @@ export type Row<T> = {
     readonly document: T
 }
 
-type FixedKey<Value> = {
-    add: (partition: string, document: Value) => Promise<Revision>
-    get: (partition: string) => Promise<Row<Value> | undefined>
-    update: (partition: string, revision: Revision, document: Value) => Promise<Revision>
+type StoreDocument = unknown
+
+type FixedKey<Document> = {
+    add: (partition: string, document: Document) => Promise<Revision>
+    get: (partition: string) => Promise<Row<Document> | undefined>
+    update: (partition: string, revision: Revision, document: Document) => Promise<Revision>
     delete: (partition: string, revision: Revision) => Promise<void>
 }
 
-type FixedPartition<Value> = {
-    add: (key: string, document: Value) => Promise<Revision>
-    get: (key: string) => Promise<Row<Value> | undefined>
-    update: (key: string, revision: Revision, document: Value) => Promise<Revision>
+type FixedPartition<Document> = {
+    add: (key: string, document: Document) => Promise<Revision>
+    get: (key: string) => Promise<Row<Document> | undefined>
+    update: (key: string, revision: Revision, document: Document) => Promise<Revision>
     delete: (key: string, revision: Revision) => Promise<void>
 }
 
-type GenericSchema<Document> = {
+type GenericSchema = {
     [table: string]: {
         [partition: string]: {
-            [key: string]: Document
+            [key: string]: StoreDocument
         }
     }
 }
 
-export function tables<Schema = GenericSchema<unknown>>(context: Context) {
+export function tables<Schema = GenericSchema>(context: Context) {
     const d = _driver
     if (!d) {
         throw new Error('Please call setDriver() before accessing documents.')
@@ -96,9 +98,11 @@ function tablesBase(connection: Promise<Connection>) {
     }
 }
 
+type GenericProxyTarget = { [k: string | symbol]: unknown }
+
 const tablesProxy = {
     get: (
-        target: { [k: string | symbol]: unknown } & ReturnType<typeof tablesBase>,
+        target: GenericProxyTarget & ReturnType<typeof tablesBase>,
         property: string | symbol,
     ) => {
         if (property in target) {
@@ -107,7 +111,7 @@ const tablesProxy = {
         if (typeof property === 'symbol') {
             return undefined
         }
-        return new Proxy<{ [k: string | symbol]: unknown }>(tableBase(target, property), tableProxy)
+        return new Proxy(tableBase(target, property), tableProxy)
     },
 }
 
@@ -120,11 +124,11 @@ function tableBase(db: ReturnType<typeof tablesBase>, table: string) {
             await c.close()
         },
         withKey: (key: string) => ({
-            add: async (partition: string, document: unknown) =>
+            add: async (partition: string, document: StoreDocument) =>
                 (await db[connectionEntry]).add(table, partition, key, document),
             get: async (partition: string) =>
                 (await db[connectionEntry]).get(table, partition, key),
-            update: async (partition: string, revision: string, document: unknown) =>
+            update: async (partition: string, revision: string, document: StoreDocument) =>
                 (await db[connectionEntry]).update(table, partition, key, revision, document),
             delete: async (partition: string, revision: Revision) =>
                 (await db[connectionEntry]).delete(table, partition, key, revision),
@@ -133,20 +137,14 @@ function tableBase(db: ReturnType<typeof tablesBase>, table: string) {
 }
 
 const tableProxy = {
-    get: (
-        target: { [k: string | symbol]: unknown } & ReturnType<typeof tableBase>,
-        property: string | symbol,
-    ) => {
+    get: (target: GenericProxyTarget & ReturnType<typeof tableBase>, property: string | symbol) => {
         if (property in target) {
             return target[property]
         }
         if (typeof property === 'symbol') {
             return undefined
         }
-        return new Proxy<{ [k: string | symbol]: unknown }>(
-            partitionBase(target, property),
-            partitionProxy,
-        )
+        return new Proxy(partitionBase(target, property), partitionProxy)
     },
 }
 
@@ -155,11 +153,11 @@ function partitionBase(db: ReturnType<typeof tableBase>, partition: string) {
         [connectionEntry]: db[connectionEntry],
         [tableNameEntry]: db[tableNameEntry],
         [partitionKeyEntry]: partition,
-        add: async (key: string, document: unknown) =>
+        add: async (key: string, document: StoreDocument) =>
             (await db[connectionEntry]).add(db[tableNameEntry], partition, key, document),
         get: async (key: string) =>
             (await db[connectionEntry]).get(db[tableNameEntry], partition, key),
-        update: async (key: string, revision: string, document: unknown) =>
+        update: async (key: string, revision: string, document: StoreDocument) =>
             (await db[connectionEntry]).update(
                 db[tableNameEntry],
                 partition,
@@ -174,7 +172,7 @@ function partitionBase(db: ReturnType<typeof tableBase>, partition: string) {
 
 const partitionProxy = {
     get: (
-        target: { [k: string | symbol]: unknown } & ReturnType<typeof partitionBase>,
+        target: GenericProxyTarget & ReturnType<typeof partitionBase>,
         property: string | symbol,
     ) => {
         if (property in target) {
@@ -199,14 +197,19 @@ type Driver = {
 
 type Connection = {
     close: () => Promise<void>
-    add: (table: string, partition: string, key: string, document: unknown) => Promise<Revision>
-    get: (table: string, partition: string, key: string) => Promise<Row<unknown>>
+    add: (
+        table: string,
+        partition: string,
+        key: string,
+        document: StoreDocument,
+    ) => Promise<Revision>
+    get: (table: string, partition: string, key: string) => Promise<Row<StoreDocument>>
     update: (
         table: string,
         partition: string,
         key: string,
         revision: Revision,
-        document: unknown,
+        document: StoreDocument,
     ) => Promise<Revision>
     delete: (table: string, partition: string, key: string, revision: Revision) => Promise<void>
 }
