@@ -1,4 +1,6 @@
+import assert from 'node:assert/strict'
 import { setDriver, tables } from '../index.js'
+import { MemoryDriver } from '../memory.js'
 
 const context = {}
 
@@ -34,7 +36,9 @@ describe('in-memory docs', () => {
         const r = await companies.settings.updateRow(s)
         d.count += 1
         await companies.settings.update(companyId, r, d)
+        assert.deepStrictEqual(await companies.settings.getDocument(companyId), { count: 5 })
 
+        await companies.keys.add(companyId, { secret: 'shh!' })
         const k = await companies.keys.get(companyId)
         if (!k) {
             throw new Error('not found')
@@ -73,41 +77,5 @@ describe('in-memory docs', () => {
 })
 
 function setMemoryDriver() {
-    const driver = new MemoryDriver()
-    setDriver({
-        connect: () => Promise.resolve(driver),
-    })
-}
-
-class MemoryDriver {
-    close() {
-        return Promise.resolve()
-    }
-
-    add(_table: string, _partition: string, _key: string, _document: unknown) {
-        return Promise.resolve('randomUUID()')
-    }
-
-    get(_table: string, partition: string, key: string) {
-        return Promise.resolve({
-            partition,
-            key,
-            revision: 'randomUUID()',
-            document: {},
-        })
-    }
-
-    update(
-        _table: string,
-        _partition: string,
-        _key: string,
-        _revision: unknown,
-        _document: unknown,
-    ) {
-        return Promise.resolve('randomUUID()')
-    }
-
-    delete(_table: string, _partition: string, _key: string, _revision: unknown) {
-        return Promise.resolve()
-    }
+    setDriver(new MemoryDriver())
 }

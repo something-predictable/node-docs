@@ -52,6 +52,7 @@ type FixedKey<Document> = {
     get: (
         partition: string,
     ) => Promise<{ partition: string; revision: Revision; document: Document } | undefined>
+    getDocument: (partition: string) => Promise<Document | undefined>
     update: (partition: string, revision: Revision, document: Document) => Promise<Revision>
     updateRow: (row: {
         partition: string
@@ -66,6 +67,7 @@ type FixedPartition<Document> = {
     get: (
         key: string,
     ) => Promise<{ key: string; revision: Revision; document: Document } | undefined>
+    getDocument: (key: string) => Promise<Document | undefined>
     update: (key: string, revision: Revision, document: Document) => Promise<Revision>
     updateRow: (row: { key: string; revision: Revision; document: Document }) => Promise<Revision>
     delete: (key: string, revision: Revision) => Promise<void>
@@ -133,6 +135,8 @@ function tableBase(db: ReturnType<typeof tablesBase>, table: string) {
                 await (await db[connectionEntry]).add(table, partition, key, document),
             get: async (partition: string) =>
                 await (await db[connectionEntry]).get(table, partition, key),
+            getDocument: async (partition: string) =>
+                (await (await db[connectionEntry]).get(table, partition, key)).document,
             update: async (partition: string, revision: Revision, document: StoredDocument) =>
                 await (await db[connectionEntry]).update(table, partition, key, revision, document),
             updateRow: async (row: {
@@ -176,6 +180,8 @@ function partitionBase(
             (await db[connectionEntry]).add(db[tableNameEntry], partition, key, document),
         get: async (key: string) =>
             (await db[connectionEntry]).get(db[tableNameEntry], partition, key),
+        getDocument: async (key: string) =>
+            (await (await db[connectionEntry]).get(db[tableNameEntry], partition, key)).document,
         update: async (key: string, revision: Revision, document: StoredDocument) =>
             (await db[connectionEntry]).update(
                 db[tableNameEntry],
