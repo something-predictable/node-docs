@@ -31,14 +31,16 @@ describe('in-memory docs', () => {
         }
         const d = s.document
         d.count += 1
-        await companies.update(s)
+        const r = await companies.settings.updateRow(s)
+        d.count += 1
+        await companies.settings.update(companyId, r, d)
 
         const k = await companies.keys.get(companyId)
         if (!k) {
             throw new Error('not found')
         }
         k.document.secret = 'yhm'
-        await companies.update(k)
+        await companies.keys.updateRow(k)
 
         await companies.settings.add('another-id', { count: 2 })
         await companies.keys.add('another-id', { secret: 'shh!!1!' })
@@ -86,8 +88,10 @@ class MemoryDriver {
         return Promise.resolve('randomUUID()')
     }
 
-    get(_table: string, _partition: string, _key: string) {
+    get(_table: string, partition: string, key: string) {
         return Promise.resolve({
+            partition,
+            key,
             revision: 'randomUUID()',
             document: {},
         })

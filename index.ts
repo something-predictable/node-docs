@@ -7,11 +7,6 @@ type KeyOf<Schema, Table extends TableNamesOf<Schema>> = keyof Schema[Table][Par
     Table
 >] &
     string
-type DocumentOfTable<Schema, Table extends TableNamesOf<Schema>> = Schema[Table][PartitionKeyOf<
-    Schema,
-    Table
->][KeyOf<Schema, Table>]
-
 type DocumentOfFixedPartition<
     Schema,
     Table extends TableNamesOf<Schema>,
@@ -31,16 +26,16 @@ type Tables<Schema> = {
 type Documents<Schema, Table extends TableNamesOf<Schema>> =
     string extends PartitionKeyOf<Schema, Table>
         ? PartitionsWithFixedKey<Schema, Table>
-        : {
-              readonly [P in PartitionKeyOf<Schema, Table>]: FixedPartition<
-                  DocumentOfFixedPartition<Schema, Table, P>
-              >
-          } & {
-              update(row: Row<DocumentOfTable<Schema, Table>>): Promise<void>
-          }
+        : Partitions<Schema, Table>
 
 type PartitionsWithFixedKey<Schema, Table extends TableNamesOf<Schema>> = {
     withKey<K extends KeyOf<Schema, Table>>(key: K): FixedKey<DocumentOfFixedKey<Schema, Table, K>>
+}
+
+type Partitions<Schema, Table extends TableNamesOf<Schema>> = {
+    readonly [P in PartitionKeyOf<Schema, Table>]: FixedPartition<
+        DocumentOfFixedPartition<Schema, Table, P>
+    >
 }
 
 export type Revision = unknown
@@ -50,26 +45,36 @@ export type Row<T> = {
     readonly document: T
 }
 
-type StoreDocument = unknown
+type StoredDocument = unknown
 
 type FixedKey<Document> = {
     add: (partition: string, document: Document) => Promise<Revision>
-    get: (partition: string) => Promise<Row<Document> | undefined>
+    get: (
+        partition: string,
+    ) => Promise<{ partition: string; revision: Revision; document: Document } | undefined>
     update: (partition: string, revision: Revision, document: Document) => Promise<Revision>
+    updateRow: (row: {
+        partition: string
+        revision: Revision
+        document: Document
+    }) => Promise<Revision>
     delete: (partition: string, revision: Revision) => Promise<void>
 }
 
 type FixedPartition<Document> = {
     add: (key: string, document: Document) => Promise<Revision>
-    get: (key: string) => Promise<Row<Document> | undefined>
+    get: (
+        key: string,
+    ) => Promise<{ key: string; revision: Revision; document: Document } | undefined>
     update: (key: string, revision: Revision, document: Document) => Promise<Revision>
+    updateRow: (row: { key: string; revision: Revision; document: Document }) => Promise<Revision>
     delete: (key: string, revision: Revision) => Promise<void>
 }
 
 type GenericSchema = {
     [table: string]: {
         [partition: string]: {
-            [key: string]: StoreDocument
+            [key: string]: StoredDocument
         }
     }
 }
@@ -123,15 +128,24 @@ function tableBase(db: ReturnType<typeof tablesBase>, table: string) {
             const c = await db[connectionEntry]
             await c.close()
         },
-        withKey: (key: string) => ({
-            add: async (partition: string, document: StoreDocument) =>
-                (await db[connectionEntry]).add(table, partition, key, document),
+        withKey: (key: string): FixedKey<StoredDocument> => ({
+            add: async (partition: string, document: StoredDocument) =>
+                await (await db[connectionEntry]).add(table, partition, key, document),
             get: async (partition: string) =>
-                (await db[connectionEntry]).get(table, partition, key),
-            update: async (partition: string, revision: string, document: StoreDocument) =>
-                (await db[connectionEntry]).update(table, partition, key, revision, document),
-            delete: async (partition: string, revision: Revision) =>
-                (await db[connectionEntry]).delete(table, partition, key, revision),
+                await (await db[connectionEntry]).get(table, partition, key),
+            update: async (partition: string, revision: Revision, document: StoredDocument) =>
+                await (await db[connectionEntry]).update(table, partition, key, revision, document),
+            updateRow: async (row: {
+                partition: string
+                revision: Revision
+                document: StoredDocument
+            }) =>
+                await (
+                    await db[connectionEntry]
+                ).update(table, row.partition, key, row.revision, row.document),
+            delete: async (partition: string, revision: Revision) => {
+                await (await db[connectionEntry]).delete(table, partition, key, revision)
+            },
         }),
     }
 }
@@ -148,16 +162,21 @@ const tableProxy = {
     },
 }
 
-function partitionBase(db: ReturnType<typeof tableBase>, partition: string) {
+function partitionBase(
+    db: ReturnType<typeof tableBase>,
+    partition: string,
+): {
+    [tableNameEntry]: string
+    [partitionKeyEntry]: string
+} & FixedPartition<StoredDocument> {
     return {
-        [connectionEntry]: db[connectionEntry],
         [tableNameEntry]: db[tableNameEntry],
         [partitionKeyEntry]: partition,
-        add: async (key: string, document: StoreDocument) =>
+        add: async (key: string, document: StoredDocument) =>
             (await db[connectionEntry]).add(db[tableNameEntry], partition, key, document),
         get: async (key: string) =>
             (await db[connectionEntry]).get(db[tableNameEntry], partition, key),
-        update: async (key: string, revision: string, document: StoreDocument) =>
+        update: async (key: string, revision: Revision, document: StoredDocument) =>
             (await db[connectionEntry]).update(
                 db[tableNameEntry],
                 partition,
@@ -165,8 +184,17 @@ function partitionBase(db: ReturnType<typeof tableBase>, partition: string) {
                 revision,
                 document,
             ),
-        delete: async (key: string, revision: Revision) =>
-            (await db[connectionEntry]).delete(db[tableNameEntry], partition, key, revision),
+        updateRow: async (row: { key: string; revision: Revision; document: StoredDocument }) =>
+            (await db[connectionEntry]).update(
+                db[tableNameEntry],
+                partition,
+                row.key,
+                row.revision,
+                row.document,
+            ),
+        delete: async (key: string, revision: Revision) => {
+            await (await db[connectionEntry]).delete(db[tableNameEntry], partition, key, revision)
+        },
     }
 }
 
@@ -201,15 +229,19 @@ type Connection = {
         table: string,
         partition: string,
         key: string,
-        document: StoreDocument,
+        document: StoredDocument,
     ) => Promise<Revision>
-    get: (table: string, partition: string, key: string) => Promise<Row<StoreDocument>>
+    get: (
+        table: string,
+        partition: string,
+        key: string,
+    ) => Promise<Row<StoredDocument> & { partition: string; key: string }>
     update: (
         table: string,
         partition: string,
         key: string,
         revision: Revision,
-        document: StoreDocument,
+        document: StoredDocument,
     ) => Promise<Revision>
     delete: (table: string, partition: string, key: string, revision: Revision) => Promise<void>
 }
