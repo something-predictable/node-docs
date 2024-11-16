@@ -127,7 +127,8 @@ export function tables<Schema = GenericSchema>(context: Context) {
     }
     const connection = d.connect(context)
     const closer = async () => {
-        await (await connection).close()
+        const c = await connection
+        await c.close()
     }
     const p = new Proxy(tablesBase(connection), tablesProxy) as unknown as Tables<Schema>
     if (!context.on?.('free', closer)) {
@@ -139,7 +140,6 @@ export function tables<Schema = GenericSchema>(context: Context) {
 
 const tableNameEntry = Symbol()
 const connectionEntry = Symbol()
-const partitionKeyEntry = Symbol()
 
 function tablesBase(connection: Promise<Connection>) {
     return {
@@ -169,27 +169,37 @@ function tableBase(db: ReturnType<typeof tablesBase>, table: string) {
         [connectionEntry]: db[connectionEntry],
         [tableNameEntry]: table,
         withKey: (key: string) => ({
-            add: async (partition: string, document: unknown) =>
-                (await db[connectionEntry]).add(table, partition, key, document),
-            get: async (partition: string) =>
-                await (await db[connectionEntry]).get(table, partition, key),
-            getDocument: async (partition: string) =>
-                (await (await db[connectionEntry]).get(table, partition, key)).document,
-            update: async (partition: string, revision: Revision, document: StoredDocument) =>
-                await (await db[connectionEntry]).update(table, partition, key, revision, document),
-            updateRow: async (row: {
+            async add(partition: string, document: unknown) {
+                const c = await db[connectionEntry]
+                return c.add(table, partition, key, document)
+            },
+            async get(partition: string) {
+                const c = await db[connectionEntry]
+                return await c.get(table, partition, key)
+            },
+            async getDocument(partition: string) {
+                const c = await db[connectionEntry]
+                const r = await c.get(table, partition, key)
+                return r?.document
+            },
+            async update(partition: string, revision: Revision, document: StoredDocument) {
+                const c = await db[connectionEntry]
+                return await c.update(table, partition, key, revision, document)
+            },
+            async updateRow(row: {
                 partition: string
                 revision: Revision
                 document: StoredDocument
-            }) =>
-                await (
-                    await db[connectionEntry]
-                ).update(table, row.partition, key, row.revision, row.document),
-            delete: async (partition: string, revision: Revision) => {
-                await (await db[connectionEntry]).delete(table, partition, key, revision)
+            }) {
+                const c = await db[connectionEntry]
+                return await c.update(table, row.partition, key, row.revision, row.document)
+            },
+            async delete(partition: string, revision: Revision) {
+                const c = await db[connectionEntry]
+                await c.delete(table, partition, key, revision)
             },
         }),
-        partition: (partition: string) => partitionBase(db[connectionEntry], table, partition),
+        partition: (partition: string) => new Partition(db[connectionEntry], table, partition),
     }
 }
 
@@ -201,63 +211,51 @@ const tableProxy = {
         if (typeof property === 'symbol') {
             return undefined
         }
-        return new Proxy(
-            partitionBase(target[connectionEntry], target[tableNameEntry], property),
-            partitionProxy,
-        )
+        return new Partition(target[connectionEntry], target[tableNameEntry], property)
     },
 }
 
-function partitionBase(
-    connection: Promise<Connection>,
-    table: string,
-    partition: string,
-): {
-    [tableNameEntry]: string
-    [partitionKeyEntry]: string
-} & NamedPartition<StoredDocument> {
-    return {
-        [tableNameEntry]: table,
-        [partitionKeyEntry]: partition,
-        add: async (key: string, document: StoredDocument) =>
-            (await connection).add(table, partition, key, document),
-        get: async (key: string) => (await connection).get(table, partition, key),
-        getDocument: async (key: string) =>
-            (await (await connection).get(table, partition, key)).document,
-        async *getRange(range: KeyRange) {
-            for await (const r of (await connection).getRange(table, partition, range)) {
-                yield r
-            }
-        },
-        update: async (key: string, revision: Revision, document: StoredDocument) =>
-            (await connection).update(table, partition, key, revision, document),
-        updateRow: async (row: { key: string; revision: Revision; document: StoredDocument }) =>
-            (await connection).update(table, partition, row.key, row.revision, row.document),
-        delete: async (key: string, revision: Revision) => {
-            await (await connection).delete(table, partition, key, revision)
-        },
+class Partition {
+    readonly #connection
+    readonly #table
+    readonly #partition
+
+    constructor(connection: Promise<Connection>, table: string, partition: string) {
+        this.#connection = connection
+        this.#table = table
+        this.#partition = partition
     }
-}
 
-const partitionProxy = {
-    get: (
-        target: GenericProxyTarget & ReturnType<typeof partitionBase>,
-        property: string | symbol,
-    ) => {
-        if (property in target) {
-            return target[property]
+    async add(key: string, document: StoredDocument) {
+        const c = await this.#connection
+        return c.add(this.#table, this.#partition, key, document)
+    }
+    async get(key: string) {
+        const c = await this.#connection
+        return c.get(this.#table, this.#partition, key)
+    }
+    async getDocument(key: string) {
+        const r = await this.get(key)
+        return r?.document
+    }
+    async *getRange(range: KeyRange) {
+        const c = await this.#connection
+        for await (const r of c.getRange(this.#table, this.#partition, range)) {
+            yield r
         }
-        if (typeof property === 'symbol') {
-            return undefined
-        }
-        return {
-            get: () => {
-                throw new Error(
-                    `document at ${target[tableNameEntry]}.${target[partitionKeyEntry]}.${property}`,
-                )
-            },
-        }
-    },
+    }
+    async update(key: string, revision: Revision, document: StoredDocument) {
+        const c = await this.#connection
+        return c.update(this.#table, this.#partition, key, revision, document)
+    }
+    async updateRow(row: { key: string; revision: Revision; document: StoredDocument }) {
+        const c = await this.#connection
+        return c.update(this.#table, this.#partition, row.key, row.revision, row.document)
+    }
+    async delete(key: string, revision: Revision) {
+        const c = await this.#connection
+        await c.delete(this.#table, this.#partition, key, revision)
+    }
 }
 
 type Driver = {
@@ -276,7 +274,7 @@ type Connection = {
         table: string,
         partition: string,
         key: string,
-    ) => Promise<Row<StoredDocument> & { partition: string; key: string }>
+    ) => Promise<(Row<StoredDocument> & { partition: string; key: string }) | undefined>
     getRange: (
         table: string,
         partition: string,
