@@ -10,6 +10,6 @@
     "start": "riddance-watch"
   },
   "devDependencies": {
-    "@riddance/env": "0.6.4"
+    "@riddance/env": "0.6.5"
   }
 }
