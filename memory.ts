@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto'
-import type { KeyRange } from './index.js'
+import type { KeyRange } from './schema.js'
 
 const documentsEntry = Symbol()
 

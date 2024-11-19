@@ -1,24 +1,26 @@
+import { getDriver, type Connection } from './lib/driver.js'
+import type { KeyRange, Revision, StoredDocument } from './schema.js'
+
 type Context = {
     on?: (event: 'free', handler: () => Promise<void>) => boolean
 }
 
 type TableNamesOf<Schema> = keyof Schema & string
 type PartitionKeyOf<Schema, Table extends TableNamesOf<Schema>> = keyof Schema[Table] & string
-type KeyOf<Schema, Table extends TableNamesOf<Schema>> = keyof Schema[Table][PartitionKeyOf<
+type KeyOf<
     Schema,
-    Table
->] &
-    string
+    Table extends TableNamesOf<Schema> = TableNamesOf<Schema>,
+> = keyof Schema[Table][PartitionKeyOf<Schema, Table>] & string
 type DocumentOfFixedPartition<
     Schema,
     Table extends TableNamesOf<Schema>,
     P extends PartitionKeyOf<Schema, Table>,
 > = Schema[Table][P][KeyOf<Schema, Table>]
 
-type DocumentOf<Schema, Table extends TableNamesOf<Schema>> = Schema[Table][PartitionKeyOf<
+type DocumentOf<
     Schema,
-    Table
->][KeyOf<Schema, Table>]
+    Table extends TableNamesOf<Schema> = TableNamesOf<Schema>,
+> = Schema[Table][PartitionKeyOf<Schema, Table>][KeyOf<Schema, Table>]
 
 type DocumentOfFixedKey<
     Schema,
@@ -26,12 +28,11 @@ type DocumentOfFixedKey<
     K extends KeyOf<Schema, Table>,
 > = Schema[Table][PartitionKeyOf<Schema, Table>][K]
 
-type Tables<Schema> =
-    string extends TableNamesOf<Schema>
-        ? never
-        : {
-              readonly [P in TableNamesOf<Schema>]: Documents<Schema, P>
-          }
+type Tables<Schema> = string extends TableNamesOf<Schema> ? never : NamedTables<Schema>
+
+type NamedTables<Schema> = {
+    readonly [P in TableNamesOf<Schema>]: Documents<Schema, P>
+}
 
 type Documents<Schema, Table extends TableNamesOf<Schema>> =
     string extends PartitionKeyOf<Schema, Table>
@@ -54,15 +55,6 @@ type Partitions<Schema, Table extends TableNamesOf<Schema>> = {
     partition(partition: string): NamedPartition<DocumentOf<Schema, Table>>
 }
 
-export type Revision = unknown
-
-export type Row<T> = {
-    readonly revision: Revision
-    readonly document: T
-}
-
-type StoredDocument = unknown
-
 type FixedKey<Document> = {
     add: (partition: string, document: Document) => Promise<Revision>
     get: (
@@ -77,19 +69,6 @@ type FixedKey<Document> = {
     }) => Promise<Revision>
     delete: (partition: string, revision: Revision) => Promise<void>
 }
-
-export type KeyRange =
-    | {
-          withPrefix: string
-      }
-    | {
-          before?: string
-          after: string
-      }
-    | {
-          before: string
-          after?: string
-      }
 
 type NamedPartition<Document> = {
     add: (key: string, document: Document) => Promise<Revision>
@@ -121,7 +100,7 @@ export function tables<Schema = GenericSchema>(
 ): Tables<Schema>
 
 export function tables<Schema = GenericSchema>(context: Context) {
-    const d = _driver
+    const d = getDriver()
     if (!d) {
         throw new Error('Please call setDriver() before accessing documents.')
     }
@@ -138,8 +117,8 @@ export function tables<Schema = GenericSchema>(context: Context) {
     return p
 }
 
-const tableNameEntry = Symbol()
 const connectionEntry = Symbol()
+const tableNameEntry = Symbol()
 
 function tablesBase(connection: Promise<Connection>) {
     return {
@@ -256,42 +235,4 @@ class Partition {
         const c = await this.#connection
         await c.delete(this.#table, this.#partition, key, revision)
     }
-}
-
-type Driver = {
-    connect: (context: Context) => Promise<Connection>
-}
-
-type Connection = {
-    close: () => Promise<void>
-    add: (
-        table: string,
-        partition: string,
-        key: string,
-        document: StoredDocument,
-    ) => Promise<Revision>
-    get: (
-        table: string,
-        partition: string,
-        key: string,
-    ) => Promise<(Row<StoredDocument> & { partition: string; key: string }) | undefined>
-    getRange: (
-        table: string,
-        partition: string,
-        keyRange: KeyRange,
-    ) => AsyncIterable<{ key: string; revision: Revision; document: StoredDocument }>
-    update: (
-        table: string,
-        partition: string,
-        key: string,
-        revision: Revision,
-        document: StoredDocument,
-    ) => Promise<Revision>
-    delete: (table: string, partition: string, key: string, revision: Revision) => Promise<void>
-}
-
-let _driver: Driver | undefined
-
-export function setDriver(driver: Driver) {
-    _driver = driver
 }

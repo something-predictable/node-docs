@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict'
-import { setDriver, tables } from '../index.js'
+import { setDriver } from '../driver.js'
+import { tables } from '../index.js'
 import { MemoryDriver } from '../memory.js'
 
 describe('in-memory docs', () => {
@@ -10,6 +11,7 @@ describe('in-memory docs', () => {
             CompanyDocs: {
                 settings: {
                     [companyId: string]: {
+                        website: string
                         count: number
                     }
                 }
@@ -20,18 +22,18 @@ describe('in-memory docs', () => {
                 }
             }
         }
-        function getSettings(c: TestContext) {
-            return tables<CompanyProfilesSchema>(c).CompanyDocs.settings
+        function getSettings(context: TestContext) {
+            return tables<CompanyProfilesSchema>(context).CompanyDocs.settings
         }
-        function getKeys(c: TestContext) {
-            return tables<CompanyProfilesSchema>(c).CompanyDocs.keys
+        function getKeys(context: TestContext) {
+            return tables<CompanyProfilesSchema>(context).CompanyDocs.keys
         }
 
         await using context = new TestContext()
         const companyId = 'some-id'
 
         const settings = getSettings(context)
-        await settings.add(companyId, { count: 3 })
+        await settings.add(companyId, { website: 'abc.com', count: 3 })
         const row = await settings.get(companyId)
         if (!row) {
             throw new Error('not found')
@@ -41,7 +43,10 @@ describe('in-memory docs', () => {
         const rev = await settings.updateRow(row)
         d.count += 1
         await settings.update(companyId, rev, d)
-        assert.deepStrictEqual(await settings.getDocument(companyId), { count: 5 })
+        assert.deepStrictEqual(await settings.getDocument(companyId), {
+            website: 'abc.com',
+            count: 5,
+        })
 
         const keys = getKeys(context)
         await keys.add(companyId, { secret: 'shh!' })
@@ -52,12 +57,17 @@ describe('in-memory docs', () => {
         keyRow.document.secret = 'yhm'
         await keys.updateRow(keyRow)
 
-        await settings.add('another-id', { count: 2 })
+        await settings.add('another-id', { website: 'xyz.com', count: 2 })
         await keys.add('another-id', { secret: 'shh!!1!' })
 
         assert.deepStrictEqual(
             await collectDocuments(settings.getRange({ withPrefix: 'another' })),
-            [{ count: 2 }],
+            [
+                {
+                    website: 'xyz.com',
+                    count: 2,
+                },
+            ],
         )
     })
 
@@ -76,11 +86,14 @@ describe('in-memory docs', () => {
                 }
             }
         }
+        function getTables(context: TestContext) {
+            return tables<UsersSchema>(context)
+        }
         function getProfiles(context: TestContext) {
-            return tables<UsersSchema>(context).UserDocs.withKey('profile')
+            return getTables(context).UserDocs.withKey('profile')
         }
         function getInvitations(context: TestContext) {
-            return tables<UsersSchema>(context).UserDocs.withKey('invitations')
+            return getTables(context).UserDocs.withKey('invitations')
         }
 
         await using context = new TestContext()
@@ -94,11 +107,12 @@ describe('in-memory docs', () => {
         await invitations.add('invitation ID', [{ id: '', scopes: [] }])
     })
 
-    it('should get user profiles', async () => {
+    it('should get messages', async () => {
         type ConversationSchema = {
             Conversations: {
                 [userId: string]: {
                     [messageId: string]: {
+                        timestamp: string
                         subject: string
                         body: string
                     }
@@ -110,9 +124,19 @@ describe('in-memory docs', () => {
         const conversations = tables<ConversationSchema>(context).Conversations
         const userId = 'some-id'
         const userMessages = conversations.partition(userId)
-        await userMessages.add('b', { subject: 'huh', body: 'hello' })
+        await userMessages.add('b', {
+            timestamp: '2024-11-19T12:30:00',
+            subject: 'huh',
+            body: 'hello',
+        })
         const range = await collectDocuments(userMessages.getRange({ after: 'a' }))
-        assert.deepStrictEqual(range, [{ subject: 'huh', body: 'hello' }])
+        assert.deepStrictEqual(range, [
+            {
+                timestamp: '2024-11-19T12:30:00',
+                subject: 'huh',
+                body: 'hello',
+            },
+        ])
     })
 })
 
