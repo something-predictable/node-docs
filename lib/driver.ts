@@ -18,7 +18,7 @@ export type Connection = {
         table: string,
         partition: string,
         key: string,
-    ) => Promise<(Row<StoredDocument> & { partition: string; key: string }) | undefined>
+    ) => Promise<Row<StoredDocument> & { partition: string; key: string }>
     getRange: (
         table: string,
         partition: string,

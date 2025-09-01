@@ -70,9 +70,6 @@ export function index<Schema = GenericSchema>(
 
 export function index<Schema = GenericSchema>(context: Context, name: string) {
     const d = getDriver()
-    if (!d) {
-        throw new Error('Please call setDriver() before accessing documents.')
-    }
     const connection = d.connect(context)
     const closer = async () => {
         const c = await connection

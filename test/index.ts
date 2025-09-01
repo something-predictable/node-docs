@@ -1,9 +1,10 @@
 import assert from 'node:assert/strict'
 import { setDriver } from '../driver.js'
+import { collectDocuments } from '../harness.js'
 import { tables } from '../index.js'
 import { MemoryDriver } from '../memory.js'
 
-describe('in-memory docs', () => {
+describe('schema', () => {
     beforeEach(setMemoryDriver)
 
     it('should get company settings', async () => {
@@ -35,9 +36,6 @@ describe('in-memory docs', () => {
         const settings = getSettings(context)
         await settings.add(companyId, { website: 'abc.com', count: 3 })
         const row = await settings.get(companyId)
-        if (!row) {
-            throw new Error('not found')
-        }
         const d = row.document
         d.count += 1
         const rev = await settings.updateRow(row)
@@ -51,9 +49,6 @@ describe('in-memory docs', () => {
         const keys = getKeys(context)
         await keys.add(companyId, { secret: 'shh!' })
         const keyRow = await keys.get(companyId)
-        if (!keyRow) {
-            throw new Error('not found')
-        }
         keyRow.document.secret = 'yhm'
         await keys.updateRow(keyRow)
 
@@ -139,14 +134,6 @@ describe('in-memory docs', () => {
         ])
     })
 })
-
-async function collectDocuments<T>(range: AsyncIterable<{ document: T }>) {
-    const collected = []
-    for await (const r of range) {
-        collected.push(r.document)
-    }
-    return collected
-}
 
 class TestContext {
     readonly #releasers: (() => Promise<void>)[] = []

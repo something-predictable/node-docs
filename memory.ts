@@ -19,33 +19,33 @@ class MemoryDocuments {
     readonly #tables = new MapWithDefault(() => new MapWithDefault(() => new Map<string, Row>()))
     #closed = false
 
-    add(table: string, partition: string, key: string, document: unknown) {
-        this.#throwIfClosed()
+    async add(table: string, partition: string, key: string, document: unknown) {
+        await this.#throwIfClosed()
         const revision = randomUUID()
         const p = this.#tables.get(table).get(partition)
         if (p.get(key)) {
             throw conflict()
         }
         p.set(key, { revision, json: JSON.stringify(document) })
-        return Promise.resolve(revision)
+        return revision
     }
 
-    get(table: string, partition: string, key: string) {
-        this.#throwIfClosed()
+    async get(table: string, partition: string, key: string) {
+        await this.#throwIfClosed()
         const row = this.#tables.get(table).get(partition).get(key)
         if (!row) {
             throw notFound()
         }
-        return Promise.resolve({
+        return {
             partition,
             key,
             revision: row.revision,
             document: JSON.parse(row.json) as unknown,
-        })
+        }
     }
 
     async *getRange(table: string, partition: string, range: KeyRange) {
-        this.#throwIfClosed()
+        await this.#throwIfClosed()
         const matches = matchRange(range)
         for (const [key, row] of this.#tables.get(table).get(partition)) {
             await Promise.resolve()
@@ -59,14 +59,14 @@ class MemoryDocuments {
         }
     }
 
-    update(
+    async update(
         table: string,
         partition: string,
         key: string,
         currentRevision: unknown,
         document: unknown,
     ) {
-        this.#throwIfClosed()
+        await this.#throwIfClosed()
         const p = this.#tables.get(table).get(partition)
         const r = p.get(key)
         if (!r) {
@@ -77,11 +77,11 @@ class MemoryDocuments {
         }
         const revision = randomUUID()
         p.set(key, { revision, json: JSON.stringify(document) })
-        return Promise.resolve(revision)
+        return revision
     }
 
-    delete(table: string, partition: string, key: string, currentRevision: unknown) {
-        this.#throwIfClosed()
+    async delete(table: string, partition: string, key: string, currentRevision: unknown) {
+        await this.#throwIfClosed()
         const p = this.#tables.get(table).get(partition)
         const r = p.get(key)
         if (!r) {
@@ -91,13 +91,13 @@ class MemoryDocuments {
             throw conflict()
         }
         p.delete(key)
-        return Promise.resolve()
     }
 
     #throwIfClosed() {
         if (this.#closed) {
-            throw new Error('Connection has been closed.')
+            return Promise.reject(new Error('Connection has been closed.'))
         }
+        return Promise.resolve()
     }
 
     close() {

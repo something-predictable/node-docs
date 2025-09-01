@@ -59,8 +59,8 @@ type FixedKey<Document> = {
     add: (partition: string, document: Document) => Promise<Revision>
     get: (
         partition: string,
-    ) => Promise<{ partition: string; revision: Revision; document: Document } | undefined>
-    getDocument: (partition: string) => Promise<Document | undefined>
+    ) => Promise<{ partition: string; revision: Revision; document: Document }>
+    getDocument: (partition: string) => Promise<Document>
     update: (partition: string, revision: Revision, document: Document) => Promise<Revision>
     updateRow: (row: {
         partition: string
@@ -72,10 +72,8 @@ type FixedKey<Document> = {
 
 type NamedPartition<Document> = {
     add: (key: string, document: Document) => Promise<Revision>
-    get: (
-        key: string,
-    ) => Promise<{ key: string; revision: Revision; document: Document } | undefined>
-    getDocument: (key: string) => Promise<Document | undefined>
+    get: (key: string) => Promise<{ key: string; revision: Revision; document: Document }>
+    getDocument: (key: string) => Promise<Document>
     getRange: (
         range: KeyRange,
     ) => AsyncIterable<{ key: string; revision: Revision; document: Document }>
@@ -101,9 +99,6 @@ export function tables<Schema = GenericSchema>(
 
 export function tables<Schema = GenericSchema>(context: Context) {
     const d = getDriver()
-    if (!d) {
-        throw new Error('Please call setDriver() before accessing documents.')
-    }
     const connection = d.connect(context)
     const closer = async () => {
         const c = await connection
@@ -159,7 +154,7 @@ function tableBase(db: ReturnType<typeof tablesBase>, table: string) {
             async getDocument(partition: string) {
                 const c = await db[connectionEntry]
                 const r = await c.get(table, partition, key)
-                return r?.document
+                return r.document
             },
             async update(partition: string, revision: Revision, document: StoredDocument) {
                 const c = await db[connectionEntry]
@@ -215,7 +210,7 @@ class Partition {
     }
     async getDocument(key: string) {
         const r = await this.get(key)
-        return r?.document
+        return r.document
     }
     async *getRange(range: KeyRange) {
         const c = await this.#connection
