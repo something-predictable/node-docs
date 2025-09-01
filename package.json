@@ -7,7 +7,7 @@
     "node": ">=22"
   },
   "exports": {
-    ".": "./index.js",
+    ".": "./partitioned.js",
     "./test/memory": "./memory.js",
     "./test/harness": "./harness.js"
   },

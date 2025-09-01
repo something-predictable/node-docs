@@ -1,8 +1,8 @@
 import assert from 'node:assert/strict'
 import { setDriver } from '../driver.js'
 import { collectDocuments } from '../harness.js'
-import { tables } from '../index.js'
 import { MemoryDriver } from '../memory.js'
+import { tables } from '../partitioned.js'
 
 describe('schema', () => {
     beforeEach(setMemoryDriver)
