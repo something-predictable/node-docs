@@ -10,6 +10,14 @@ export class MemoryDriver {
     }
 }
 
+export class PersistentMemoryDriver {
+    readonly #documents = new MemoryDocuments()
+
+    connect() {
+        return Promise.resolve(this.#documents)
+    }
+}
+
 type Row = {
     json: string
     revision: string

@@ -1,18 +1,29 @@
 {
-  "name": "docs",
+  "name": "@riddance/docs",
   "version": "0.0.1",
   "type": "module",
-  "private": true,
   "engines": {
     "node": ">=22"
   },
+  "files": [
+    "*.js",
+    "lib/*.js",
+    "*.d.ts"
+  ],
   "exports": {
     ".": "./partitioned.js",
+    "./schema": "./schema.js",
+    "./driver": "./driver.js",
     "./test/memory": "./memory.js",
-    "./test/harness": "./harness.js"
+    "./test/harness": "./harness.js",
+    "./test/mock": "./mock.js"
   },
+  "mock": "test/mock",
   "scripts": {
-    "start": "riddance-watch"
+    "start": "riddance-watch",
+    "prepack": "riddance-build",
+    "prepublishOnly": "riddance-prepublish",
+    "postpublish": "riddance-sync"
   },
   "devDependencies": {
     "@riddance/env": "0.9.2"

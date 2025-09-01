@@ -34,10 +34,14 @@ export type Connection = {
     delete: (table: string, partition: string, key: string, revision: Revision) => Promise<void>
 }
 
-let _driver: Driver | undefined
+let _driver: Driver = {
+    connect: () => Promise.reject<Connection>(new Error('No driver set, please call setDriver()')),
+}
 
 export function setDriver(driver: Driver) {
+    const previous = _driver
     _driver = driver
+    return previous
 }
 
 export function getDriver() {
