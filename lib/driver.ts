@@ -19,10 +19,10 @@ export type Connection = {
         partition: string,
         key: string,
     ) => Promise<Row<StoredDocument> & { partition: string; key: string }>
-    getRange: (
+    getPartition: (
         table: string,
         partition: string,
-        keyRange: KeyRange,
+        keyRange?: KeyRange,
     ) => AsyncIterable<{ key: string; revision: Revision; document: StoredDocument }>
     update: (
         table: string,

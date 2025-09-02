@@ -52,7 +52,7 @@ class MemoryDocuments {
         }
     }
 
-    async *getRange(table: string, partition: string, range: KeyRange) {
+    async *getPartition(table: string, partition: string, range?: KeyRange) {
         await this.#throwIfClosed()
         const matches = matchRange(range)
         for (const [key, row] of this.#tables.get(table).get(partition)) {
@@ -114,7 +114,10 @@ class MemoryDocuments {
     }
 }
 
-function matchRange(range: KeyRange) {
+function matchRange(range?: KeyRange) {
+    if (!range) {
+        return () => true
+    }
     if ('withPrefix' in range) {
         return (key: string) => key.startsWith(range.withPrefix)
     }
@@ -129,8 +132,6 @@ function matchRange(range: KeyRange) {
         }
         if (before) {
             return (key: string) => key < before
-        } else {
-            return () => true
         }
     }
     return () => false

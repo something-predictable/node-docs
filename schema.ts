@@ -10,7 +10,6 @@ export type KeyRange =
           before: string
           after?: string
       }
-    | object
 
 export type StoredDocument = unknown
 

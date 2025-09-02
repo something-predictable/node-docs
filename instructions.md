@@ -77,15 +77,20 @@ const invitations = getTables<Schema>(context).Users.withKey("invitations");
 // For reference, each of the above variables satisfy this type which is not exported. When coming from the `withKey` function, the `key` argument is actually the partition, since the key was already specified.
 type DocumentSet<Document> = {
     add: (key: string, document: Document) => Promise<Revision>;
-    get: (key: string) => Promise<{ key: string; revision: Revision; document: Document }>;
+    get: (key: string) => Promise<Row<Document>>;
     getDocument: (key: string) => Promise<Document>;
+    getAll: () => AsyncIterable<Row<Document>>;
     getRange: (
-        range: KeyRange,
-    ) => AsyncIterable<{ key: string; revision: Revision; document: Document }>;
+        range:
+            | { withPrefix: string }
+            | { before?: string; after: string }
+            | { before: string; after?: string },
+    ) => AsyncIterable<Row<Document>>;
     update: (key: string, revision: Revision, document: Document) => Promise<Revision>;
-    updateRow: (row: { key: string; revision: Revision; document: Document }) => Promise<Revision>;
+    updateRow: (row: Row<Document>) => Promise<Revision>;
     delete: (key: string, revision: Revision) => Promise<void>;
 };
+type Row<Document> = { key: string; revision: Revision; document: Document };
 ```
 
 Consider adding helper functions to `./lib/schema.ts` like this

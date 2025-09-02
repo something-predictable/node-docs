@@ -74,6 +74,7 @@ type NamedPartition<Document> = {
     add: (key: string, document: Document) => Promise<Revision>
     get: (key: string) => Promise<{ key: string; revision: Revision; document: Document }>
     getDocument: (key: string) => Promise<Document>
+    getAll: () => AsyncIterable<{ key: string; revision: Revision; document: Document }>
     getRange: (
         range: KeyRange,
     ) => AsyncIterable<{ key: string; revision: Revision; document: Document }>
@@ -212,9 +213,15 @@ class Partition {
         const r = await this.get(key)
         return r.document
     }
+    async *getAll() {
+        const c = await this.#connection
+        for await (const r of c.getPartition(this.#table, this.#partition)) {
+            yield r
+        }
+    }
     async *getRange(range: KeyRange) {
         const c = await this.#connection
-        for await (const r of c.getRange(this.#table, this.#partition, range)) {
+        for await (const r of c.getPartition(this.#table, this.#partition, range)) {
             yield r
         }
     }

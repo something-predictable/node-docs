@@ -64,7 +64,7 @@ export function harness(
 
     it('gets empty range', async () => {
         await using c = await connect(driver, contextFactory)
-        const partition = await collectDocuments(c.docs.getRange(table, anId(), {}))
+        const partition = await collectDocuments(c.docs.getPartition(table, anId()))
         assert.deepStrictEqual(partition, [])
     })
 
@@ -78,19 +78,19 @@ export function harness(
         await c.docs.add(table, partition, 'c2', aDocument({ key: 'c2' }))
         await c.docs.add(table, partition, 'c3', aDocument({ key: 'c3' }))
         assert.deepStrictEqual(
-            (await collectDocuments(c.docs.getRange(table, partition, { before: 'b' }))).map(
+            (await collectDocuments(c.docs.getPartition(table, partition, { before: 'b' }))).map(
                 d => (d as { key: string }).key,
             ),
             ['a1', 'a2'],
         )
         assert.deepStrictEqual(
-            (await collectDocuments(c.docs.getRange(table, partition, { after: 'b' }))).map(
+            (await collectDocuments(c.docs.getPartition(table, partition, { after: 'b' }))).map(
                 d => (d as { key: string }).key,
             ),
             ['b', 'c1', 'c2', 'c3'],
         )
         assert.deepStrictEqual(
-            (await collectDocuments(c.docs.getRange(table, partition, { after: 'c' }))).map(
+            (await collectDocuments(c.docs.getPartition(table, partition, { after: 'c' }))).map(
                 d => (d as { key: string }).key,
             ),
             ['c1', 'c2', 'c3'],
@@ -98,15 +98,15 @@ export function harness(
         assert.deepStrictEqual(
             (
                 await collectDocuments(
-                    c.docs.getRange(table, partition, { after: 'a', before: 'c' }),
+                    c.docs.getPartition(table, partition, { after: 'a', before: 'c' }),
                 )
             ).map(d => (d as { key: string }).key),
             ['a1', 'a2', 'b'],
         )
         assert.deepStrictEqual(
-            (await collectDocuments(c.docs.getRange(table, partition, { withPrefix: 'a' }))).map(
-                d => (d as { key: string }).key,
-            ),
+            (
+                await collectDocuments(c.docs.getPartition(table, partition, { withPrefix: 'a' }))
+            ).map(d => (d as { key: string }).key),
             ['a1', 'a2'],
         )
     })
