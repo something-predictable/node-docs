@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict'
 import { randomUUID } from 'node:crypto'
 import type { Driver } from './lib/driver.js'
+import { isConflict, isNotFound } from './partitioned.js'
 
 const table = 'HarnessTestDocs'
 
@@ -151,14 +152,6 @@ function aDocument<T extends { [key: string]: unknown }>(props?: T) {
 
 function aRow<T extends { [key: string]: unknown }>(props?: T) {
     return { table, partition: anId(), key: anId(), document: aDocument(props) } as const
-}
-
-function isConflict(e: unknown) {
-    return (e as { status?: unknown }).status === 409
-}
-
-function isNotFound(e: unknown) {
-    return (e as { status?: unknown }).status === 404
 }
 
 async function connect(driver: Driver, contextFactory: () => object) {

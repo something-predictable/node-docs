@@ -8,7 +8,8 @@
   "files": [
     "*.js",
     "lib/*.js",
-    "*.d.ts"
+    "*.d.ts",
+    "instructions.md"
   ],
   "exports": {
     ".": "./partitioned.js",
@@ -17,6 +18,9 @@
     "./test/memory": "./memory.js",
     "./test/harness": "./harness.js",
     "./test/mock": "./mock.js"
+  },
+  "ai": {
+    "instructions": "./instructions.md"
   },
   "mock": "test/mock",
   "scripts": {

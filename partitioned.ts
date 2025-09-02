@@ -231,3 +231,11 @@ class Partition {
         await c.delete(this.#table, this.#partition, key, revision)
     }
 }
+
+export function isConflict(e: unknown) {
+    return (e as { status?: unknown }).status === 409
+}
+
+export function isNotFound(e: unknown) {
+    return (e as { status?: unknown }).status === 404
+}
