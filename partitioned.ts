@@ -1,3 +1,5 @@
+import assert from 'node:assert/strict'
+import { setTimeout } from 'node:timers/promises'
 import { getDriver, type Connection } from './lib/driver.js'
 import type { KeyRange, Revision, StoredDocument } from './schema.js'
 
@@ -67,6 +69,47 @@ type FixedKey<Document> = {
         revision: Revision
         document: Document
     }) => Promise<Revision>
+    getOrAddComputed: (
+        partition: string,
+        computed: () => Promise<Document> | Document,
+        options?: RetryOptions,
+    ) => Promise<{ partition: string; revision: Revision; document: Document }>
+    addOrUpdate: (
+        partition: string,
+        document: Document,
+        update: (existing: Document) => void,
+        options?: RetryOptions,
+    ) => Promise<{
+        action: 'add' | 'update'
+        partition: Revision
+        key: string
+        revision: Revision
+        document: Document
+    }>
+    addOrUpdateComputed: (
+        partition: string,
+        computed: () => Promise<Document> | Document,
+        update: (existing: Document) => void,
+        options?: RetryOptions,
+    ) => Promise<{
+        action: 'add' | 'update'
+        partition: Revision
+        key: string
+        revision: Revision
+        document: Document
+    }>
+    converge: (
+        partition: string,
+        target: (document: Document) => boolean,
+        initial: Document,
+        update: (existing: Document) => void,
+        options?: RetryOptions,
+    ) => Promise<{
+        partition: Revision
+        key: string
+        revision: Revision
+        document: Document
+    }>
     delete: (partition: string, revision: Revision) => Promise<void>
 }
 
@@ -80,6 +123,52 @@ type NamedPartition<Document> = {
     ) => AsyncIterable<{ key: string; revision: Revision; document: Document }>
     update: (key: string, revision: Revision, document: Document) => Promise<Revision>
     updateRow: (row: { key: string; revision: Revision; document: Document }) => Promise<Revision>
+    getOrAdd: (
+        key: string,
+        document: Document,
+        options?: RetryOptions,
+    ) => Promise<{ key: string; revision: Revision; document: Document }>
+    getOrAddComputed: (
+        key: string,
+        computed: () => Promise<Document> | Document,
+        options?: RetryOptions,
+    ) => Promise<{ key: string; revision: Revision; document: Document }>
+    addOrUpdate: (
+        key: string,
+        document: Document,
+        update: (existing: Document) => void,
+        options?: RetryOptions,
+    ) => Promise<{
+        action: 'add' | 'update'
+        partition: Revision
+        key: string
+        revision: Revision
+        document: Document
+    }>
+    addOrUpdateComputed: (
+        key: string,
+        computed: () => Promise<Document> | Document,
+        update: (existing: Document) => void,
+        options?: RetryOptions,
+    ) => Promise<{
+        action: 'add' | 'update'
+        partition: Revision
+        key: string
+        revision: Revision
+        document: Document
+    }>
+    converge: (
+        key: string,
+        target: (document: Document) => boolean,
+        initial: Document,
+        update: (existing: Document) => void,
+        options?: RetryOptions,
+    ) => Promise<{
+        partition: Revision
+        key: string
+        revision: Revision
+        document: Document
+    }>
     delete: (key: string, revision: Revision) => Promise<void>
 }
 
@@ -169,6 +258,73 @@ function tableBase(db: ReturnType<typeof tablesBase>, table: string) {
                 const c = await db[connectionEntry]
                 return await c.update(table, row.partition, key, row.revision, row.document)
             },
+            async getOrAdd(partition: string, document: unknown, options?: RetryOptions) {
+                const c = await db[connectionEntry]
+                return await getOrAdd(c, table, partition, key, document, options)
+            },
+            async getOrAddComputed<T>(
+                partition: string,
+                computed: () => Promise<T> | T,
+                options?: RetryOptions,
+            ) {
+                const c = await db[connectionEntry]
+                return await getOrAddComputed(c, table, partition, key, computed, options)
+            },
+            async addOrUpdate(
+                partition: string,
+                document: unknown,
+                update: (existing: unknown) => void,
+                options?: RetryOptions,
+            ) {
+                const c = await db[connectionEntry]
+                return await addOrUpdate(c, table, partition, key, document, update, options)
+            },
+            async addOrUpdateComputed<T>(
+                partition: string,
+                computed: () => Promise<T> | T,
+                update: (existing: T) => void,
+                options?: RetryOptions,
+            ) {
+                const c = await db[connectionEntry]
+                return await addOrUpdateComputed(
+                    c,
+                    table,
+                    partition,
+                    key,
+                    computed,
+                    update,
+                    options,
+                )
+            },
+            async converge<T>(
+                partition: string,
+                target: (document: T) => boolean,
+                initial: T,
+                update: (existing: T) => void,
+                options?: RetryOptions,
+            ) {
+                const c = await db[connectionEntry]
+                return await converge(c, table, partition, key, target, initial, update, options)
+            },
+            async convergeComputed<T>(
+                partition: string,
+                target: (document: T) => boolean,
+                computed: () => Promise<T> | T,
+                update: (existing: T) => void,
+                options?: RetryOptions,
+            ) {
+                const c = await db[connectionEntry]
+                return await convergeComputed(
+                    c,
+                    table,
+                    partition,
+                    key,
+                    target,
+                    computed,
+                    update,
+                    options,
+                )
+            },
             async delete(partition: string, revision: Revision) {
                 const c = await db[connectionEntry]
                 await c.delete(table, partition, key, revision)
@@ -233,9 +389,261 @@ class Partition {
         const c = await this.#connection
         return c.update(this.#table, this.#partition, row.key, row.revision, row.document)
     }
+    async getOrAdd(key: string, document: unknown, options?: RetryOptions) {
+        const c = await this.#connection
+        return await getOrAdd(c, this.#table, this.#partition, key, document, options)
+    }
+    async getOrAddComputed(key: string, computed: () => Promise<unknown>, options?: RetryOptions) {
+        const c = await this.#connection
+        return await getOrAddComputed(c, this.#table, this.#partition, key, computed, options)
+    }
+    async addOrUpdate(
+        key: string,
+        document: unknown,
+        update: (existing: unknown) => void,
+        options?: RetryOptions,
+    ) {
+        const c = await this.#connection
+        return await addOrUpdate(c, this.#table, this.#partition, key, document, update, options)
+    }
+    async addOrUpdateComputed(
+        key: string,
+        computed: () => Promise<unknown>,
+        update: (existing: unknown) => void,
+        options?: RetryOptions,
+    ) {
+        const c = await this.#connection
+        return await addOrUpdateComputed(
+            c,
+            this.#table,
+            this.#partition,
+            key,
+            computed,
+            update,
+            options,
+        )
+    }
+    async converge<T>(
+        key: string,
+        target: (document: T) => boolean,
+        initial: T,
+        update: (existing: T) => void,
+        options?: RetryOptions,
+    ) {
+        const c = await this.#connection
+        return await converge(
+            c,
+            this.#table,
+            this.#partition,
+            key,
+            target,
+            initial,
+            update,
+            options,
+        )
+    }
+
+    async convergeComputed<T>(
+        key: string,
+        target: (document: T) => boolean,
+        computed: () => Promise<T> | T,
+        update: (existing: T) => void,
+        options?: RetryOptions,
+    ) {
+        const c = await this.#connection
+        return await convergeComputed(
+            c,
+            this.#table,
+            this.#partition,
+            key,
+            target,
+            computed,
+            update,
+            options,
+        )
+    }
     async delete(key: string, revision: Revision) {
         const c = await this.#connection
         await c.delete(this.#table, this.#partition, key, revision)
+    }
+}
+
+type RetryOptions = { retries: number; delay: number; signal: AbortSignal }
+type Row = { partition: string; key: string; revision: unknown; document: unknown }
+
+async function getOrAdd(
+    c: Connection,
+    table: string,
+    partition: string,
+    key: string,
+    document: unknown,
+    options?: RetryOptions,
+): Promise<Row> {
+    return await retryConflict(async () => {
+        try {
+            return await c.get(table, partition, key)
+        } catch (e) {
+            if (isNotFound(e)) {
+                const revision = await c.add(table, partition, key, document)
+                return { partition, key, revision, document }
+            }
+            throw e
+        }
+    }, options)
+}
+
+async function getOrAddComputed<T>(
+    c: Connection,
+    table: string,
+    partition: string,
+    key: string,
+    callback: () => Promise<T> | T,
+    options?: RetryOptions,
+): Promise<Row> {
+    return await retryConflict(async () => {
+        try {
+            return await c.get(table, partition, key)
+        } catch (e) {
+            if (isNotFound(e)) {
+                const document = await callback()
+                const revision = await c.add(table, partition, key, document)
+                return { partition, key, revision, document }
+            }
+            throw e
+        }
+    }, options)
+}
+
+async function addOrUpdate<T>(
+    c: Connection,
+    table: string,
+    partition: string,
+    key: string,
+    document: T,
+    update: (existing: T) => void,
+    options?: RetryOptions,
+): Promise<Row> {
+    return await retryConflict(async () => {
+        try {
+            const row = await c.get(table, partition, key)
+            update(row.document as T)
+            const revision = await c.update(table, partition, key, row.revision, row.document)
+            return { action: 'update', partition, key, revision, document: row.document }
+        } catch (e) {
+            if (isNotFound(e)) {
+                const revision = await c.add(table, partition, key, document)
+                return { action: 'add', partition, key, revision, document }
+            }
+            throw e
+        }
+    }, options)
+}
+
+async function addOrUpdateComputed<T>(
+    c: Connection,
+    table: string,
+    partition: string,
+    key: string,
+    computed: () => Promise<T> | T,
+    update: (existing: T) => void,
+    options?: RetryOptions,
+): Promise<Row> {
+    return await retryConflict(async () => {
+        try {
+            const row = await c.get(table, partition, key)
+            update(row.document as T)
+            const revision = await c.update(table, partition, key, row.revision, row.document)
+            return { action: 'update', partition, key, revision, document: row.document }
+        } catch (e) {
+            if (isNotFound(e)) {
+                const document = await computed()
+                const revision = await c.add(table, partition, key, document)
+                return { action: 'add', partition, key, revision, document }
+            }
+            throw e
+        }
+    }, options)
+}
+
+async function converge<T>(
+    c: Connection,
+    table: string,
+    partition: string,
+    key: string,
+    target: (document: T) => boolean,
+    initial: T,
+    update: (existing: T) => void,
+    options?: RetryOptions,
+): Promise<Row> {
+    assert.ok(target(initial), 'Initial document does not meet target.')
+    return await retryConflict(async () => {
+        try {
+            const row = await c.get(table, partition, key)
+            if (target(row.document as T)) {
+                return row
+            }
+            update(row.document as T)
+            assert.ok(target(row.document as T), 'Updated document does not meet target.')
+            const revision = await c.update(table, partition, key, row.revision, row.document)
+            return { partition, key, revision, document: row.document }
+        } catch (e) {
+            if (isNotFound(e)) {
+                const revision = await c.add(table, partition, key, initial)
+                return { partition, key, revision, document: initial }
+            }
+            throw e
+        }
+    }, options)
+}
+
+async function convergeComputed<T>(
+    c: Connection,
+    table: string,
+    partition: string,
+    key: string,
+    target: (document: T) => boolean,
+    initial: () => Promise<T> | T,
+    update: (existing: T) => void,
+    options?: RetryOptions,
+): Promise<Row> {
+    return await retryConflict(async () => {
+        try {
+            const row = await c.get(table, partition, key)
+            if (target(row.document as T)) {
+                return row
+            }
+            update(row.document as T)
+            assert.ok(target(row.document as T), 'Updated document does not meet target.')
+            const revision = await c.update(table, partition, key, row.revision, row.document)
+            return { partition, key, revision, document: row.document }
+        } catch (e) {
+            if (isNotFound(e)) {
+                const document = await initial()
+                assert.ok(target(document as T), 'Initial document does not meet target.')
+                const revision = await c.add(table, partition, key, document)
+                return { partition, key, revision, document }
+            }
+            throw e
+        }
+    }, options)
+}
+
+export async function retryConflict<T>(fn: () => Promise<T>, options?: RetryOptions) {
+    for (let remaining = options?.retries ?? 3; ; --remaining) {
+        try {
+            return await fn()
+        } catch (e) {
+            if (!remaining) {
+                throw e
+            }
+            if (isConflict(e)) {
+                await setTimeout((options?.delay ?? 250) * (Math.random() + 0.5), undefined, {
+                    signal: options?.signal,
+                })
+                continue
+            }
+            throw e
+        }
     }
 }
 

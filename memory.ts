@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto'
+import { setTimeout } from 'node:timers/promises'
 import type { KeyRange } from './schema.js'
 
 const documentsEntry = Symbol()
@@ -12,6 +13,14 @@ export class MemoryDriver {
 
 export class PersistentMemoryDriver {
     readonly #documents = new MemoryDocuments()
+
+    connect() {
+        return Promise.resolve(this.#documents)
+    }
+}
+
+export class DelayedPersistentMemoryDriver {
+    readonly #documents = new DelayedDocuments()
 
     connect() {
         return Promise.resolve(this.#documents)
@@ -111,6 +120,55 @@ class MemoryDocuments {
     close() {
         this.#closed = true
         return Promise.resolve()
+    }
+}
+
+class DelayedDocuments {
+    readonly #inner = new MemoryDocuments()
+
+    async add(table: string, partition: string, key: string, document: unknown) {
+        await using _ = await delayed()
+        return await this.#inner.add(table, partition, key, document)
+    }
+
+    async get(table: string, partition: string, key: string) {
+        await using _ = await delayed()
+        return await this.#inner.get(table, partition, key)
+    }
+
+    async *getPartition(table: string, partition: string, range?: KeyRange) {
+        await using _ = await delayed()
+        for await (const row of this.#inner.getPartition(table, partition, range)) {
+            yield row
+        }
+    }
+
+    async update(
+        table: string,
+        partition: string,
+        key: string,
+        currentRevision: unknown,
+        document: unknown,
+    ) {
+        await using _ = await delayed()
+        return await this.#inner.update(table, partition, key, currentRevision, document)
+    }
+
+    async delete(table: string, partition: string, key: string, currentRevision: unknown) {
+        await using _ = await delayed()
+        await this.#inner.delete(table, partition, key, currentRevision)
+    }
+
+    async close() {
+        await using _ = await delayed()
+        await this.#inner.close()
+    }
+}
+
+async function delayed() {
+    await setTimeout(Math.random())
+    return {
+        [Symbol.asyncDispose]: () => setTimeout(Math.random()),
     }
 }
 

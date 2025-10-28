@@ -88,6 +88,18 @@ type DocumentSet<Document> = {
     ) => AsyncIterable<Row<Document>>;
     update: (key: string, revision: Revision, document: Document) => Promise<Revision>;
     updateRow: (row: Row<Document>) => Promise<Revision>;
+    getOrAdd: (key: string, document: Document) => Promise<Row<Document>>;
+    addOrUpdate: (
+        key: string,
+        document: Document,
+        update: (existing: Document) => void,
+    ) => Promise<Row<Document>>;
+    converge: (
+        key: string,
+        target: (document: Document) => boolean,
+        document: Document,
+        update: (existing: Document) => void,
+    ) => Promise<Row<Document>>;
     delete: (key: string, revision: Revision) => Promise<void>;
 };
 type Row<Document> = { key: string; revision: Revision; document: Document };
@@ -139,4 +151,23 @@ async function updateUserProfile(context: object, userId: string, newProfile, re
         throw e;
     }
 }
+```
+
+`getOrAdd`, `addOrUpdate`, `converge` on `DocumentSet` are helper functions that manages concurrency issues by retrying conflict errors. Their `document` argument is added if it doesn't exist, `update` is called to mutate the document if it does exist, and `target` determines if the document needs updating. You can e.g. make updates idempotent like this:
+
+```ts
+type Document = { processedMessages: string[]; count: number };
+documents.converge(
+    key,
+    /*target*/ (doc) => doc.processedMessages.includes(messageId),
+    /*initial document*/ { processedMessages: [messageId], count: 1 },
+    /*update*/ (doc) => {
+        if (doc.processedMessages.length === 8) {
+            // only keep recently processed messages
+            doc.processedMessages.shift();
+        }
+        doc.processedMessages.push(messageId);
+        doc.count += 1;
+    },
+);
 ```
