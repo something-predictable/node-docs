@@ -1,6 +1,5 @@
 import assert from 'node:assert/strict'
 import { setDriver } from '../driver.js'
-import { collectDocuments } from '../harness.js'
 import { MemoryDriver } from '../memory.js'
 import { tables } from '../partitioned.js'
 
@@ -56,7 +55,7 @@ describe('schema', () => {
         await keys.add('another-id', { secret: 'shh!!1!' })
 
         assert.deepStrictEqual(
-            await collectDocuments(settings.getRange({ withPrefix: 'another' })),
+            await Array.fromAsync(settings.getRange({ withPrefix: 'another' }), r => r.document),
             [
                 {
                     website: 'xyz.com',
@@ -124,7 +123,7 @@ describe('schema', () => {
             subject: 'huh',
             body: 'hello',
         })
-        const range = await collectDocuments(userMessages.getRange({ after: 'a' }))
+        const range = await Array.fromAsync(userMessages.getRange({ after: 'a' }), r => r.document)
         assert.deepStrictEqual(range, [
             {
                 timestamp: '2024-11-19T12:30:00',

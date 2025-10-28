@@ -64,7 +64,7 @@ export function harness(
 
     it('gets empty range', async () => {
         await using c = await connect(driver, contextFactory)
-        const partition = await collectDocuments(c.docs.getPartition(table, anId()))
+        const partition = await Array.fromAsync(c.docs.getPartition(table, anId()), r => r.document)
         assert.deepStrictEqual(partition, [])
     })
 
@@ -78,35 +78,38 @@ export function harness(
         await c.docs.add(table, partition, 'c2', aDocument({ key: 'c2' }))
         await c.docs.add(table, partition, 'c3', aDocument({ key: 'c3' }))
         assert.deepStrictEqual(
-            (await collectDocuments(c.docs.getPartition(table, partition, { before: 'b' }))).map(
-                d => (d as { key: string }).key,
+            await Array.fromAsync(
+                c.docs.getPartition(table, partition, { before: 'b' }),
+                r => (r.document as { key: string }).key,
             ),
             ['a1', 'a2'],
         )
         assert.deepStrictEqual(
-            (await collectDocuments(c.docs.getPartition(table, partition, { after: 'b' }))).map(
-                d => (d as { key: string }).key,
+            await Array.fromAsync(
+                c.docs.getPartition(table, partition, { after: 'b' }),
+                r => (r.document as { key: string }).key,
             ),
             ['b', 'c1', 'c2', 'c3'],
         )
         assert.deepStrictEqual(
-            (await collectDocuments(c.docs.getPartition(table, partition, { after: 'c' }))).map(
-                d => (d as { key: string }).key,
+            await Array.fromAsync(
+                c.docs.getPartition(table, partition, { after: 'c' }),
+                r => (r.document as { key: string }).key,
             ),
             ['c1', 'c2', 'c3'],
         )
         assert.deepStrictEqual(
-            (
-                await collectDocuments(
-                    c.docs.getPartition(table, partition, { after: 'a', before: 'c' }),
-                )
-            ).map(d => (d as { key: string }).key),
+            await Array.fromAsync(
+                c.docs.getPartition(table, partition, { after: 'a', before: 'c' }),
+                r => (r.document as { key: string }).key,
+            ),
             ['a1', 'a2', 'b'],
         )
         assert.deepStrictEqual(
-            (
-                await collectDocuments(c.docs.getPartition(table, partition, { withPrefix: 'a' }))
-            ).map(d => (d as { key: string }).key),
+            await Array.fromAsync(
+                c.docs.getPartition(table, partition, { withPrefix: 'a' }),
+                r => (r.document as { key: string }).key,
+            ),
             ['a1', 'a2'],
         )
     })
@@ -129,14 +132,6 @@ export function harness(
         assert.deepStrictEqual(added, document)
         assert.strictEqual(reAddedRevision, revision)
     })
-}
-
-export async function collectDocuments<T>(range: AsyncIterable<{ document: T }>) {
-    const collected = []
-    for await (const { document } of range) {
-        collected.push(document)
-    }
-    return collected
 }
 
 function anId(): string {
