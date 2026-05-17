@@ -619,7 +619,7 @@ async function convergeComputed<T>(
         } catch (e) {
             if (isNotFound(e)) {
                 const document = await initial()
-                assert.ok(target(document as T), 'Initial document does not meet target.')
+                assert.ok(target(document), 'Initial document does not meet target.')
                 const revision = await c.add(table, partition, key, document)
                 return { partition, key, revision, document }
             }

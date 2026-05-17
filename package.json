@@ -1,9 +1,9 @@
 {
   "name": "@riddance/docs",
-  "version": "0.0.2",
+  "version": "0.0.3",
   "type": "module",
   "engines": {
-    "node": ">=22"
+    "node": ">=24"
   },
   "files": [
     "*.js",
@@ -30,6 +30,6 @@
     "postpublish": "riddance-sync"
   },
   "devDependencies": {
-    "@riddance/env": "0.9.6"
+    "@riddance/env": "0.10.0"
   }
 }

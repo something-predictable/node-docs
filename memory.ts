@@ -192,7 +192,11 @@ function matchRange(range?: KeyRange) {
             return (key: string) => key < before
         }
     }
-    return () => false
+    return alwaysFalse
+}
+
+function alwaysFalse() {
+    return false
 }
 
 class MapWithDefault<K, V> {
